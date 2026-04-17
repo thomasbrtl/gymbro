@@ -198,19 +198,25 @@ export default function App() {
     }
   }, [supaSession, loadFeed, loadFollows, loadNotifs, loadConversations])
 
-  // ── Real-time subscriptions ──
+  // ── Real-time subscriptions + polling fallback ──
   useEffect(() => {
     if (!supaSession) return
+    const uid = supaSession.user.id
     const channel = supabase.channel('gymbro-realtime')
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'posts' }, () => loadFeed())
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'likes' }, () => loadFeed())
+      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'likes' }, () => loadFeed())
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'comments' }, () => loadFeed())
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'profiles' }, () => loadProfile(uid))
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'notifications',
-          filter: `user_id=eq.${supaSession.user.id}` }, () => loadNotifs())
+          filter: `user_id=eq.${uid}` }, () => loadNotifs())
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages',
-          filter: `to_id=eq.${supaSession.user.id}` }, () => loadConversations())
+          filter: `to_id=eq.${uid}` }, () => loadConversations())
       .subscribe()
-    return () => supabase.removeChannel(channel)
-  }, [supaSession, loadFeed, loadNotifs, loadConversations])
+    // Polling every 20s as fallback (real-time can miss events on mobile)
+    const poll = setInterval(() => { loadFeed(); loadProfile(uid); loadNotifs(); }, 20000)
+    return () => { supabase.removeChannel(channel); clearInterval(poll); }
+  }, [supaSession, loadFeed, loadNotifs, loadConversations, loadProfile])
 
   // ══════════════════════ SUPABASE AUTH HANDLERS ══
 
@@ -354,9 +360,11 @@ export default function App() {
     }
     if (Object.keys(dbUpdate).length > 0) {
       const { error } = await supabase.from('profiles').update(dbUpdate).eq('id', supaSession.user.id)
-      if (error) console.error('updateProfile error:', error)
+      if (error) { console.error('updateProfile error:', error); throw error; }
     }
     await loadProfile(supaSession.user.id)
+    // Also reload feed so avatar/pseudo updates reflect on posts
+    await loadFeed()
   }
 
   async function updateStats(statUpdates) {
@@ -506,6 +514,9 @@ export default function App() {
       }
       await updateStats(statUpdates)
 
+      // Force immediate UI refresh
+      await loadFeed()
+      await loadProfile(supaSession.user.id)
       return { isNewDay, isEarly, prCount }
     },
     // Local-only updates (programs etc)

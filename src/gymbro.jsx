@@ -939,41 +939,44 @@ function PostCard({post,i,onProfile,toggleLike,onComment,following,toggleFollow,
 }
 
 function CreatePostModal({onClose,onSubmit}){
-  const [caption,setCaption]=useState(""); const [tags,setTags]=useState(""); const [isVideo,setIsVideo]=useState(false); const [mediaPreview,setMediaPreview]=useState(null);
+  const [caption,setCaption]=useState(""); const [tags,setTags]=useState(""); const [isVideo,setIsVideo]=useState(false); const [mediaPreview,setMediaPreview]=useState(null); const [loading,setLoading]=useState(false);
   const fileRef=useRef();
   const handleFile=e=>{
     const file=e.target.files[0]; if(!file)return;
     setIsVideo(file.type.startsWith("video/"));
-    // Convert to data URL for persistence (images + video) (works for images and small videos)
     const reader=new FileReader();
     reader.onload=ev=>setMediaPreview(ev.target.result);
     reader.readAsDataURL(file);
   };
   const submit=async()=>{
-    if(!caption.trim())return;
+    if(loading)return;
+    setLoading(true);
     const tagArr=tags.split(/[\s,]+/).map(t=>t.replace(/^#/,"")).filter(Boolean);
     await onSubmit({caption,tags:tagArr,mediaUrl:mediaPreview,isVideo});
+    setLoading(false);
   };
   return(
-    <div className="modal-bg" onClick={onClose}>
-      <div className="modal-sheet" onClick={e=>e.stopPropagation()}>
-        <div className="modal-handle"/>
-        <div style={{padding:"0 16px"}}>
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
-            <div style={{fontSize:19,fontWeight:900}}>Nouveau post</div>
-            <button onClick={onClose} style={{background:"none",border:"none",color:"#666",fontSize:20,cursor:"pointer"}}>✕</button>
-          </div>
-          <div onClick={()=>fileRef.current.click()} style={{background:"#13131A",border:"2px dashed #2A2A3A",borderRadius:12,height:160,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",marginBottom:12,overflow:"hidden"}}>
-            {mediaPreview?(isVideo?<video src={mediaPreview} style={{width:"100%",height:"100%",objectFit:"cover"}}/>:<img src={mediaPreview} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/>):(
-              <div style={{textAlign:"center",color:"#444"}}><div style={{fontSize:32,marginBottom:5}}>📷</div><div style={{fontSize:12,fontFamily:"'Barlow',sans-serif"}}>Photo ou vidéo (max 1 min)</div></div>
-            )}
-          </div>
-          <input ref={fileRef} type="file" accept="image/*,video/*" style={{display:"none"}} onChange={handleFile}/>
-          {mediaPreview&&<button onClick={()=>setMediaPreview(null)} style={{background:"none",border:"1px solid #FF3D3D44",color:"#FF6060",borderRadius:7,padding:"3px 9px",fontSize:11,cursor:"pointer",fontFamily:"inherit",marginBottom:10}}>✕ Retirer</button>}
-          <textarea className="inp" placeholder="Décris ta séance..." value={caption} onChange={e=>setCaption(e.target.value)} rows={3} style={{resize:"none",marginBottom:9,lineHeight:1.5,fontFamily:"'Barlow',sans-serif"}}/>
-          <input className="inp" placeholder="#tag1 #tag2" value={tags} onChange={e=>setTags(e.target.value)} style={{marginBottom:14,fontSize:13}}/>
-          <button className="btn-r" onClick={submit} disabled={!caption.trim()&&!mediaPreview}>PUBLIER 🚀</button>
+    <div style={{position:"fixed",inset:0,background:"#0F0F18",zIndex:500,display:"flex",flexDirection:"column",maxWidth:430,left:"50%",transform:"translateX(-50%)"}}>
+      {/* Header */}
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"max(env(safe-area-inset-top,0px),14px) 16px 12px",borderBottom:"1px solid #1A1A24",flexShrink:0}}>
+        <button onClick={onClose} style={{background:"none",border:"none",color:"#888",fontSize:22,cursor:"pointer",lineHeight:1,padding:"4px 8px"}}>✕</button>
+        <div style={{fontSize:17,fontWeight:900}}>Nouveau post</div>
+        <button onClick={submit} disabled={(!caption.trim()&&!mediaPreview)||loading}
+          style={{background:(!caption.trim()&&!mediaPreview)||loading?"#333":"#FF3D3D",border:"none",color:"#FFF",borderRadius:9,padding:"8px 16px",fontSize:13,fontWeight:800,cursor:"pointer",fontFamily:"inherit",opacity:loading?.6:1}}>
+          {loading?"...":"Publier"}
+        </button>
+      </div>
+      {/* Scrollable content */}
+      <div style={{flex:1,overflowY:"auto",WebkitOverflowScrolling:"touch",padding:"14px 16px",paddingBottom:"calc(env(safe-area-inset-bottom,0px) + 16px)"}}>
+        <div onClick={()=>fileRef.current.click()} style={{background:"#13131A",border:"2px dashed #2A2A3A",borderRadius:12,height:200,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",marginBottom:12,overflow:"hidden"}}>
+          {mediaPreview?(isVideo?<video src={mediaPreview} style={{width:"100%",height:"100%",objectFit:"cover"}}/>:<img src={mediaPreview} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/>):(
+            <div style={{textAlign:"center",color:"#444"}}><div style={{fontSize:40,marginBottom:8}}>📷</div><div style={{fontSize:13,fontFamily:"'Barlow',sans-serif"}}>Ajouter une photo ou vidéo</div></div>
+          )}
         </div>
+        <input ref={fileRef} type="file" accept="image/*,video/*" style={{display:"none"}} onChange={handleFile}/>
+        {mediaPreview&&<button onClick={e=>{e.stopPropagation();setMediaPreview(null);}} style={{background:"none",border:"1px solid #FF3D3D44",color:"#FF6060",borderRadius:7,padding:"4px 10px",fontSize:11,cursor:"pointer",fontFamily:"inherit",marginBottom:12,display:"block"}}>✕ Retirer la photo</button>}
+        <textarea className="inp" placeholder="Décris ta séance..." value={caption} onChange={e=>setCaption(e.target.value)} rows={4} style={{resize:"none",marginBottom:10,lineHeight:1.5,fontFamily:"'Barlow',sans-serif",fontSize:14}}/>
+        <input className="inp" placeholder="#tag1 #tag2" value={tags} onChange={e=>setTags(e.target.value)} style={{marginBottom:10,fontSize:13}}/>
       </div>
     </div>
   );
@@ -2162,26 +2165,31 @@ function ProfileTab({appState,updateState,rank,imc,av,onEdit,onLogout,posts,chec
         </div>
       )}
 
-      {/* Pin modal */}
+      {/* Pin modal — fullscreen pour Safari iPhone */}
       {showPinModal&&(
-        <div className="modal-bg" onClick={()=>setShowPinModal(false)}>
-          <div className="modal-sheet" onClick={e=>e.stopPropagation()} style={{maxHeight:"80vh"}}>
-            <div className="modal-handle"/>
-            <div style={{padding:"0 14px"}}>
-              <div style={{fontSize:16,fontWeight:900,marginBottom:3}}>Trophées épinglés</div>
-              <div style={{color:"#555",fontSize:11,fontFamily:"'Barlow',sans-serif",marginBottom:12}}>Choisis jusqu'à 3 trophées débloqués</div>
-              {unlocked.length===0?<div style={{color:"#444",textAlign:"center",padding:"18px 0",fontSize:12}}>Débloque d'abord des trophées !</div>:(
-                <div style={{maxHeight:320,overflowY:"auto",WebkitOverflowScrolling:"touch"}}>
-                {unlocked.map(t=>{const p=(user.pinnedTrophies||[]).includes(t.id);return(
-                  <div key={t.id} onClick={()=>togglePin(t.id)} style={{display:"flex",alignItems:"center",gap:11,padding:"9px 11px",background:p?RC[t.rarity]+"15":"#0D0D14",borderRadius:9,marginBottom:5,border:`1px solid ${p?RC[t.rarity]+"44":"#1A1A24"}`,cursor:"pointer"}}>
-                    <span style={{fontSize:20}}>{t.icon}</span>
-                    <div style={{flex:1}}><div style={{fontWeight:700,fontSize:12}}>{t.name}</div><div style={{color:"#555",fontSize:10}}>{t.desc}</div></div>
-                    <div style={{width:20,height:20,borderRadius:"50%",border:`2px solid ${p?RC[t.rarity]:"#2A2A3A"}`,background:p?RC[t.rarity]:"transparent",display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,flexShrink:0}}>{p?"✓":""}</div>
+        <div style={{position:"fixed",inset:0,background:"#0F0F18",zIndex:500,display:"flex",flexDirection:"column",maxWidth:430,left:"50%",transform:"translateX(-50%)"}}>
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"max(env(safe-area-inset-top,0px),14px) 16px 12px",borderBottom:"1px solid #1A1A24",flexShrink:0}}>
+            <button onClick={()=>setShowPinModal(false)} style={{background:"none",border:"none",color:"#888",fontSize:22,cursor:"pointer",lineHeight:1,padding:"4px 8px"}}>✕</button>
+            <div style={{fontSize:17,fontWeight:900}}>Trophées épinglés</div>
+            <div style={{width:36}}/>
+          </div>
+          <div style={{padding:"10px 14px 6px",borderBottom:"1px solid #1A1A24",flexShrink:0}}>
+            <div style={{color:"#666",fontSize:12,fontFamily:"'Barlow',sans-serif"}}>Choisis jusqu'à 3 trophées · {(user.pinnedTrophies||[]).length}/3 sélectionnés</div>
+          </div>
+          <div style={{flex:1,overflowY:"auto",WebkitOverflowScrolling:"touch",padding:"10px 14px",paddingBottom:"calc(env(safe-area-inset-bottom,0px) + 16px)"}}>
+            {unlocked.length===0
+              ?<div style={{color:"#444",textAlign:"center",padding:"40px 0",fontSize:14}}>Débloque d'abord des trophées !</div>
+              :unlocked.map(t=>{const p=(user.pinnedTrophies||[]).includes(t.id);return(
+                <div key={t.id} onClick={()=>togglePin(t.id)} style={{display:"flex",alignItems:"center",gap:12,padding:"12px 12px",background:p?RC[t.rarity]+"15":"#0D0D14",borderRadius:11,marginBottom:8,border:`1.5px solid ${p?RC[t.rarity]+"66":"#1A1A24"}`,cursor:"pointer"}}>
+                  <div style={{width:42,height:42,borderRadius:10,background:RC[t.rarity]+"20",display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,flexShrink:0}}>{t.icon}</div>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{fontWeight:800,fontSize:13,color:"#F0F0F0"}}>{t.name}</div>
+                    <div style={{color:"#555",fontSize:11,marginTop:2}}>{t.desc}</div>
                   </div>
-                );})}
+                  <div style={{width:24,height:24,borderRadius:"50%",border:`2px solid ${p?RC[t.rarity]:"#333"}`,background:p?RC[t.rarity]:"transparent",display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,flexShrink:0,color:"#FFF"}}>{p?"✓":""}</div>
                 </div>
-              )}
-            </div>
+              );}
+            )}
           </div>
         </div>
       )}
