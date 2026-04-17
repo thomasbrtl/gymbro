@@ -459,7 +459,11 @@ function SupabaseBridge({ callbacks, externalAppState, isAuthenticated }) {
 
     // Wrap addPost to use Supabase
     const wrappedAddPost = async (p) => { await addPost(p); };
-    const wrappedSaveSession = saveSession;
+    const wrappedSaveSession = async (dayName, programName, result, durationSec) => {
+      await saveSession(dayName, programName, result, durationSec, (localPatch) => {
+        saveLocal(localPatch);
+      });
+    };
 
     return (
       <><style>{CSS}</style>
@@ -956,27 +960,32 @@ function CreatePostModal({onClose,onSubmit}){
     setLoading(false);
   };
   return(
-    <div style={{position:"fixed",inset:0,background:"#0F0F18",zIndex:500,display:"flex",flexDirection:"column",maxWidth:430,left:"50%",transform:"translateX(-50%)"}}>
-      {/* Header */}
-      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"max(env(safe-area-inset-top,0px),14px) 16px 12px",borderBottom:"1px solid #1A1A24",flexShrink:0}}>
-        <button onClick={onClose} style={{background:"none",border:"none",color:"#888",fontSize:22,cursor:"pointer",lineHeight:1,padding:"4px 8px"}}>✕</button>
-        <div style={{fontSize:17,fontWeight:900}}>Nouveau post</div>
-        <button onClick={submit} disabled={(!caption.trim()&&!mediaPreview)||loading}
-          style={{background:(!caption.trim()&&!mediaPreview)||loading?"#333":"#FF3D3D",border:"none",color:"#FFF",borderRadius:9,padding:"8px 16px",fontSize:13,fontWeight:800,cursor:"pointer",fontFamily:"inherit",opacity:loading?.6:1}}>
-          {loading?"...":"Publier"}
-        </button>
-      </div>
-      {/* Scrollable content */}
-      <div style={{flex:1,overflowY:"auto",WebkitOverflowScrolling:"touch",padding:"14px 16px",paddingBottom:"calc(env(safe-area-inset-bottom,0px) + 16px)"}}>
-        <div onClick={()=>fileRef.current.click()} style={{background:"#13131A",border:"2px dashed #2A2A3A",borderRadius:12,height:200,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",marginBottom:12,overflow:"hidden"}}>
-          {mediaPreview?(isVideo?<video src={mediaPreview} style={{width:"100%",height:"100%",objectFit:"cover"}}/>:<img src={mediaPreview} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/>):(
-            <div style={{textAlign:"center",color:"#444"}}><div style={{fontSize:40,marginBottom:8}}>📷</div><div style={{fontSize:13,fontFamily:"'Barlow',sans-serif"}}>Ajouter une photo ou vidéo</div></div>
-          )}
+    <div className="modal-center" onClick={onClose} style={{alignItems:"center",zIndex:500}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:"#13131A",borderRadius:20,width:"calc(100% - 32px)",maxWidth:390,maxHeight:"80vh",display:"flex",flexDirection:"column",border:"1px solid #2A2A3A",boxShadow:"0 8px 40px #000000CC",animation:"scaleIn .25s cubic-bezier(.34,1.56,.64,1)"}}>
+        {/* Header */}
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"16px 16px 12px",borderBottom:"1px solid #1E1E28",flexShrink:0}}>
+          <button onClick={onClose} style={{background:"none",border:"none",color:"#666",fontSize:20,cursor:"pointer",lineHeight:1,width:32}}>✕</button>
+          <div style={{fontSize:16,fontWeight:900}}>Nouveau post</div>
+          <button onClick={submit} disabled={(!caption.trim()&&!mediaPreview)||loading}
+            style={{background:(!caption.trim()&&!mediaPreview)||loading?"#333":"linear-gradient(135deg,#FF3D3D,#FF6B00)",border:"none",color:"#FFF",borderRadius:9,padding:"7px 14px",fontSize:12,fontWeight:800,cursor:"pointer",fontFamily:"inherit",transition:"all .2s"}}>
+            {loading?"⏳":"Publier 🚀"}
+          </button>
         </div>
-        <input ref={fileRef} type="file" accept="image/*,video/*" style={{display:"none"}} onChange={handleFile}/>
-        {mediaPreview&&<button onClick={e=>{e.stopPropagation();setMediaPreview(null);}} style={{background:"none",border:"1px solid #FF3D3D44",color:"#FF6060",borderRadius:7,padding:"4px 10px",fontSize:11,cursor:"pointer",fontFamily:"inherit",marginBottom:12,display:"block"}}>✕ Retirer la photo</button>}
-        <textarea className="inp" placeholder="Décris ta séance..." value={caption} onChange={e=>setCaption(e.target.value)} rows={4} style={{resize:"none",marginBottom:10,lineHeight:1.5,fontFamily:"'Barlow',sans-serif",fontSize:14}}/>
-        <input className="inp" placeholder="#tag1 #tag2" value={tags} onChange={e=>setTags(e.target.value)} style={{marginBottom:10,fontSize:13}}/>
+        {/* Scrollable body */}
+        <div style={{overflowY:"auto",WebkitOverflowScrolling:"touch",padding:"14px 16px 18px",flex:1}}>
+          <div onClick={()=>fileRef.current.click()} style={{background:"#0D0D14",border:"2px dashed #2A2A3A",borderRadius:12,height:150,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",marginBottom:10,overflow:"hidden",transition:"border-color .2s"}}>
+            {mediaPreview
+              ?(isVideo?<video src={mediaPreview} style={{width:"100%",height:"100%",objectFit:"cover"}}/>:<img src={mediaPreview} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/>)
+              :<div style={{textAlign:"center",color:"#444"}}>
+                <div style={{fontSize:36,marginBottom:6}}>📷</div>
+                <div style={{fontSize:12,fontFamily:"'Barlow',sans-serif"}}>Ajouter une photo / vidéo</div>
+              </div>}
+          </div>
+          <input ref={fileRef} type="file" accept="image/*,video/*" style={{display:"none"}} onChange={handleFile}/>
+          {mediaPreview&&<button onClick={e=>{e.stopPropagation();setMediaPreview(null);}} style={{background:"none",border:"1px solid #FF3D3D44",color:"#FF6060",borderRadius:7,padding:"3px 9px",fontSize:11,cursor:"pointer",fontFamily:"inherit",marginBottom:10,display:"block"}}>✕ Retirer</button>}
+          <textarea className="inp" placeholder="Décris ta séance..." value={caption} onChange={e=>setCaption(e.target.value)} rows={3} style={{resize:"none",marginBottom:9,lineHeight:1.5,fontFamily:"'Barlow',sans-serif"}}/>
+          <input className="inp" placeholder="#tag1 #tag2" value={tags} onChange={e=>setTags(e.target.value)} style={{fontSize:13}}/>
+        </div>
       </div>
     </div>
   );
@@ -2165,31 +2174,32 @@ function ProfileTab({appState,updateState,rank,imc,av,onEdit,onLogout,posts,chec
         </div>
       )}
 
-      {/* Pin modal — fullscreen pour Safari iPhone */}
+      {/* Pin modal — centered card */}
       {showPinModal&&(
-        <div style={{position:"fixed",inset:0,background:"#0F0F18",zIndex:500,display:"flex",flexDirection:"column",maxWidth:430,left:"50%",transform:"translateX(-50%)"}}>
-          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"max(env(safe-area-inset-top,0px),14px) 16px 12px",borderBottom:"1px solid #1A1A24",flexShrink:0}}>
-            <button onClick={()=>setShowPinModal(false)} style={{background:"none",border:"none",color:"#888",fontSize:22,cursor:"pointer",lineHeight:1,padding:"4px 8px"}}>✕</button>
-            <div style={{fontSize:17,fontWeight:900}}>Trophées épinglés</div>
-            <div style={{width:36}}/>
-          </div>
-          <div style={{padding:"10px 14px 6px",borderBottom:"1px solid #1A1A24",flexShrink:0}}>
-            <div style={{color:"#666",fontSize:12,fontFamily:"'Barlow',sans-serif"}}>Choisis jusqu'à 3 trophées · {(user.pinnedTrophies||[]).length}/3 sélectionnés</div>
-          </div>
-          <div style={{flex:1,overflowY:"auto",WebkitOverflowScrolling:"touch",padding:"10px 14px",paddingBottom:"calc(env(safe-area-inset-bottom,0px) + 16px)"}}>
-            {unlocked.length===0
-              ?<div style={{color:"#444",textAlign:"center",padding:"40px 0",fontSize:14}}>Débloque d'abord des trophées !</div>
-              :unlocked.map(t=>{const p=(user.pinnedTrophies||[]).includes(t.id);return(
-                <div key={t.id} onClick={()=>togglePin(t.id)} style={{display:"flex",alignItems:"center",gap:12,padding:"12px 12px",background:p?RC[t.rarity]+"15":"#0D0D14",borderRadius:11,marginBottom:8,border:`1.5px solid ${p?RC[t.rarity]+"66":"#1A1A24"}`,cursor:"pointer"}}>
-                  <div style={{width:42,height:42,borderRadius:10,background:RC[t.rarity]+"20",display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,flexShrink:0}}>{t.icon}</div>
-                  <div style={{flex:1,minWidth:0}}>
-                    <div style={{fontWeight:800,fontSize:13,color:"#F0F0F0"}}>{t.name}</div>
-                    <div style={{color:"#555",fontSize:11,marginTop:2}}>{t.desc}</div>
+        <div className="modal-center" onClick={()=>setShowPinModal(false)} style={{zIndex:500,alignItems:"center"}}>
+          <div onClick={e=>e.stopPropagation()} style={{background:"#13131A",borderRadius:20,width:"calc(100% - 32px)",maxWidth:390,maxHeight:"72vh",display:"flex",flexDirection:"column",border:"1px solid #2A2A3A",boxShadow:"0 8px 40px #000000CC",animation:"scaleIn .25s cubic-bezier(.34,1.56,.64,1)"}}>
+            <div style={{padding:"18px 18px 12px",borderBottom:"1px solid #1E1E28",flexShrink:0,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+              <div>
+                <div style={{fontSize:17,fontWeight:900}}>Trophées épinglés</div>
+                <div style={{color:"#666",fontSize:11,marginTop:3,fontFamily:"'Barlow',sans-serif"}}>{(user.pinnedTrophies||[]).length}/3 sélectionnés</div>
+              </div>
+              <button onClick={()=>setShowPinModal(false)} style={{background:"#1A1A24",border:"1px solid #2A2A3A",color:"#888",borderRadius:9,padding:"7px 12px",fontSize:12,cursor:"pointer",fontFamily:"inherit",fontWeight:700}}>Fermer</button>
+            </div>
+            <div style={{overflowY:"auto",WebkitOverflowScrolling:"touch",padding:"10px 14px 16px",flex:1}}>
+              {unlocked.length===0
+                ?<div style={{color:"#444",textAlign:"center",padding:"32px 0",fontSize:13}}>Débloque d'abord des trophées !</div>
+                :unlocked.map(t=>{const p=(user.pinnedTrophies||[]).includes(t.id);return(
+                  <div key={t.id} onClick={()=>togglePin(t.id)} style={{display:"flex",alignItems:"center",gap:12,padding:"11px 10px",background:p?RC[t.rarity]+"15":"#0D0D14",borderRadius:11,marginBottom:7,border:`1.5px solid ${p?RC[t.rarity]+"55":"#1A1A24"}`,cursor:"pointer",transition:"all .15s"}}>
+                    <div style={{width:40,height:40,borderRadius:10,background:RC[t.rarity]+"20",border:`1px solid ${RC[t.rarity]}33`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,flexShrink:0}}>{t.icon}</div>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{fontWeight:800,fontSize:13,color:"#F0F0F0"}}>{t.name}</div>
+                      <div style={{color:"#555",fontSize:11,marginTop:1}}>{t.desc}</div>
+                    </div>
+                    <div style={{width:22,height:22,borderRadius:"50%",border:`2px solid ${p?RC[t.rarity]:"#333"}`,background:p?RC[t.rarity]:"transparent",display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,flexShrink:0,color:"#FFF",fontWeight:700}}>{p?"✓":""}</div>
                   </div>
-                  <div style={{width:24,height:24,borderRadius:"50%",border:`2px solid ${p?RC[t.rarity]:"#333"}`,background:p?RC[t.rarity]:"transparent",display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,flexShrink:0,color:"#FFF"}}>{p?"✓":""}</div>
-                </div>
-              );}
-            )}
+                )}
+              )}
+            </div>
           </div>
         </div>
       )}

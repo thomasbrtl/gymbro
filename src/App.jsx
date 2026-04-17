@@ -450,7 +450,7 @@ export default function App() {
       await updateProfile(updates)
     },
     // Session save (local + stats to Supabase)
-    saveSession: async (dayName, programName, result, durationSec) => {
+    saveSession: async (dayName, programName, result, durationSec, onLocalUpdate) => {
       if (!supaSession) return
       const now = Date.now()
       const hour = new Date(now).getHours()
@@ -491,6 +491,8 @@ export default function App() {
       const historyEntry = { id: Math.random().toString(36).slice(2), date: now, dayName, programName, durationSec, exercises: result }
       const newHistory = [historyEntry, ...(localCache.sessionHistory || [])]
       saveLocalCache({ exercises: newExercises, sessionHistory: newHistory })
+      // Notify bridge to re-render with new local data
+      if (onLocalUpdate) onLocalUpdate({ exercises: newExercises, sessionHistory: newHistory })
 
       // Update stats in Supabase
       const PR_EX = ['Développé couché','Squat','Soulevé de terre','Développé militaire','Rowing barre','Hip thrust','Presse','Tractions']
