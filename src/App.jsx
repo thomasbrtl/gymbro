@@ -334,16 +334,28 @@ export default function App() {
 
   async function updateProfile(updates) {
     if (!supaSession) return
+    const dbUpdate = {}
+    // Map UI fields to DB columns
+    if (updates.pseudo !== undefined)  dbUpdate.pseudo  = updates.pseudo
+    if (updates.bio    !== undefined)  dbUpdate.bio     = updates.bio
+    if (updates.poids  !== undefined)  dbUpdate.poids   = Number(updates.poids)  || 0
+    if (updates.taille !== undefined)  dbUpdate.taille  = Number(updates.taille) || 0
+    if (updates.pinnedTrophies)        dbUpdate.pinned_trophies = updates.pinnedTrophies
+    if (updates.trophyDates)           dbUpdate.trophy_dates    = updates.trophyDates
     // Handle avatar upload
     if (updates.avatar && updates.avatar.startsWith('data:')) {
       const file = dataURLtoFile(updates.avatar, 'avatar.jpg')
       if (file) {
-        const url = await uploadMedia(file, supaSession.user.id + '-avatar')
-        if (url) updates.avatar_url = url
+        const url = await uploadMedia(file, supaSession.user.id)
+        if (url) dbUpdate.avatar_url = url
       }
+    } else if (updates.avatar) {
+      dbUpdate.avatar_url = updates.avatar
     }
-    const { avatar, ...rest } = updates
-    await supabase.from('profiles').update({ ...rest }).eq('id', supaSession.user.id)
+    if (Object.keys(dbUpdate).length > 0) {
+      const { error } = await supabase.from('profiles').update(dbUpdate).eq('id', supaSession.user.id)
+      if (error) console.error('updateProfile error:', error)
+    }
     await loadProfile(supaSession.user.id)
   }
 

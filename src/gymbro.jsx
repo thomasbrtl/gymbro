@@ -409,7 +409,20 @@ export default function GymbroApp({ supabaseMode, supabaseCallbacks, externalApp
 // Adapts the Supabase data shape into the AppMain props
 function SupabaseBridge({ callbacks, externalAppState, isAuthenticated }) {
   const [screen, setScreen] = useState("splash");
-  const [localAppState, setLocalAppState] = useState(() => loadState());
+  // Local state for things not in Supabase (programs, exercises, sessionHistory)
+  // Also used to force re-renders when local data changes
+  const [localData, setLocalData] = useState(() => {
+    try { return JSON.parse(localStorage.getItem("gymbro_local") || "{}"); } catch { return {}; }
+  });
+
+  // Helper to update local data AND force re-render
+  const saveLocal = (patch) => {
+    setLocalData(prev => {
+      const next = { ...prev, ...patch };
+      localStorage.setItem("gymbro_local", JSON.stringify(next));
+      return next;
+    });
+  };
 
   // If Supabase says user is authenticated, show main app
   if (isAuthenticated && externalAppState) {
@@ -417,31 +430,41 @@ function SupabaseBridge({ callbacks, externalAppState, isAuthenticated }) {
             toggleFollow, sendMessage, updateProfile, saveSession,
             updatePrograms, updatePinnedTrophies, updateTrophyDate, updateCountry } = callbacks;
 
-    // updateState wrapper — merges and calls appropriate Supabase endpoints
+    // Merge externalAppState with localData so UI always has fresh local data
+    const mergedAppState = {
+      ...externalAppState,
+      programs: localData.programs || externalAppState.programs || [],
+      exercises: localData.exercises || externalAppState.exercises || {},
+      sessionHistory: localData.sessionHistory || externalAppState.sessionHistory || [],
+    };
+
+    // updateState wrapper — routes to Supabase or local as appropriate
     const updateState = (patch) => {
-      const update = typeof patch === "function" ? patch(externalAppState) : patch;
-      // Handle specific keys
+      const update = typeof patch === "function" ? patch(mergedAppState) : patch;
+
+      // Supabase updates
       if (update.user) updateProfile(update.user);
       if (update.country) updateCountry(update.country);
-      if (update.programs) updatePrograms(update.programs);
       if (update.user?.pinnedTrophies) updatePinnedTrophies(update.user.pinnedTrophies);
-      // For local-only state (programs, exercises, sessionHistory)
+
+      // Local-only updates (programs, exercises, sessionHistory) — save + re-render
       const localKeys = ["programs","exercises","sessionHistory"];
       const localUpdate = Object.fromEntries(Object.entries(update).filter(([k]) => localKeys.includes(k)));
       if (Object.keys(localUpdate).length > 0) {
-        const current = JSON.parse(localStorage.getItem("gymbro_local") || "{}");
-        localStorage.setItem("gymbro_local", JSON.stringify({ ...current, ...localUpdate }));
+        saveLocal(localUpdate);
+        // Also call updatePrograms callback if programs changed
+        if (localUpdate.programs) updatePrograms(localUpdate.programs);
       }
     };
 
     // Wrap addPost to use Supabase
-    const wrappedAddPost = (p) => addPost(p);
+    const wrappedAddPost = async (p) => { await addPost(p); };
     const wrappedSaveSession = saveSession;
 
     return (
       <><style>{CSS}</style>
       <AppMain
-        appState={externalAppState}
+        appState={mergedAppState}
         updateState={updateState}
         onLogout={onLogout}
         overrides={{
@@ -451,6 +474,7 @@ function SupabaseBridge({ callbacks, externalAppState, isAuthenticated }) {
           toggleFollow,
           sendMessage,
           saveSession: wrappedSaveSession,
+          updateProfile,
         }}
       /></>
     );
@@ -772,11 +796,15 @@ function AppMain({appState,updateState,onLogout,overrides={}}){
       )}
 
       {editProfileOpen&&<EditProfileModal user={user} onClose={()=>setEditProfileOpen(false)} onSave={u=>{
-        // Update avatar on all user's posts
-        updateState(s=>({
-          user:{...s.user,...u},
-          posts:s.posts.map(p=>p.userId==="me"?{...p,avatarVal:u.avatar||p.avatarVal,pseudo:u.pseudo||p.pseudo}:p)
-        }));
+        // Update via overrides.updateProfile if available (Supabase mode), else local
+        if(overrides.updateProfile){
+          overrides.updateProfile(u).then(()=>setEditProfileOpen(false));
+        } else {
+          updateState(s=>({
+            user:{...s.user,...u},
+            posts:s.posts.map(p=>p.userId==="me"?{...p,avatarVal:u.avatar||p.avatarVal,pseudo:u.pseudo||p.pseudo}:p)
+          }));
+        }
       }}/>}
     </div>
   );
@@ -867,7 +895,7 @@ function FeedTab({appState,updateState,addPost,onOpenProfile,toggleLike,addComme
           </div>
         </div>
       )}
-      {showCreate&&<CreatePostModal onClose={()=>setShowCreate(false)} onSubmit={p=>{addPost(p);setShowCreate(false);}}/>}
+      {showCreate&&<CreatePostModal onClose={()=>setShowCreate(false)} onSubmit={async p=>{await addPost(p);setShowCreate(false);}}/>}
     </div>
   );
 }
@@ -921,7 +949,11 @@ function CreatePostModal({onClose,onSubmit}){
     reader.onload=ev=>setMediaPreview(ev.target.result);
     reader.readAsDataURL(file);
   };
-  const submit=()=>{const tagArr=tags.split(/[\s,]+/).map(t=>t.replace(/^#/,"")).filter(Boolean);onSubmit({caption,tags:tagArr,mediaUrl:mediaPreview,isVideo});};
+  const submit=async()=>{
+    if(!caption.trim())return;
+    const tagArr=tags.split(/[\s,]+/).map(t=>t.replace(/^#/,"")).filter(Boolean);
+    await onSubmit({caption,tags:tagArr,mediaUrl:mediaPreview,isVideo});
+  };
   return(
     <div className="modal-bg" onClick={onClose}>
       <div className="modal-sheet" onClick={e=>e.stopPropagation()}>
@@ -940,7 +972,7 @@ function CreatePostModal({onClose,onSubmit}){
           {mediaPreview&&<button onClick={()=>setMediaPreview(null)} style={{background:"none",border:"1px solid #FF3D3D44",color:"#FF6060",borderRadius:7,padding:"3px 9px",fontSize:11,cursor:"pointer",fontFamily:"inherit",marginBottom:10}}>✕ Retirer</button>}
           <textarea className="inp" placeholder="Décris ta séance..." value={caption} onChange={e=>setCaption(e.target.value)} rows={3} style={{resize:"none",marginBottom:9,lineHeight:1.5,fontFamily:"'Barlow',sans-serif"}}/>
           <input className="inp" placeholder="#tag1 #tag2" value={tags} onChange={e=>setTags(e.target.value)} style={{marginBottom:14,fontSize:13}}/>
-          <button className="btn-r" onClick={submit} disabled={!caption.trim()}>PUBLIER 🚀</button>
+          <button className="btn-r" onClick={submit} disabled={!caption.trim()&&!mediaPreview}>PUBLIER 🚀</button>
         </div>
       </div>
     </div>
@@ -2044,14 +2076,13 @@ function ProfileTab({appState,updateState,rank,imc,av,onEdit,onLogout,posts,chec
 
       {/* Pinned trophies */}
       <div style={{marginBottom:12}}>
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:7}}>
-          <div style={{fontSize:12,fontWeight:800,letterSpacing:".04em"}}>TROPHÉES ÉPINGLÉS</div>
-          <button onClick={()=>setShowPinModal(true)} style={{background:"none",border:"1px solid #2A2A3A",color:"#666",padding:"2px 7px",borderRadius:5,fontSize:10,cursor:"pointer",fontFamily:"inherit"}}>✎</button>
+        <div style={{marginBottom:7}}>
+          <div style={{fontSize:12,fontWeight:800,letterSpacing:".04em",color:"#888"}}>TROPHÉES ÉPINGLÉS <span style={{color:"#444",fontWeight:400,fontSize:10}}>(clique pour modifier)</span></div>
         </div>
         <div style={{display:"flex",gap:7}}>
           {Array.from({length:3},(_,i)=>{const t=pinned[i];return(
-            <div key={i} onClick={t?()=>setSelPinnedTrophy(t):undefined} style={{flex:1,height:52,background:t?RC[t.rarity]+"15":"#0D0D14",border:`1px solid ${t?RC[t.rarity]+"44":"#1A1A24"}`,borderRadius:9,display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:1,cursor:t?"pointer":"default"}}>
-              {t?<><span style={{fontSize:20}}>{t.icon}</span><span style={{fontSize:8,color:RC[t.rarity],fontWeight:700,textAlign:"center",padding:"0 4px"}}>{t.name}</span></>:<span style={{fontSize:16,color:"#2A2A3A"}}>+</span>}
+            <div key={i} onClick={t?()=>setSelPinnedTrophy(t):()=>setShowPinModal(true)} style={{flex:1,height:52,background:t?RC[t.rarity]+"15":"#0D0D14",border:`1px solid ${t?RC[t.rarity]+"44":"#1A1A24"}`,borderRadius:9,display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:1,cursor:"pointer"}}>
+              {t?<><span style={{fontSize:20}}>{t.icon}</span><span style={{fontSize:8,color:RC[t.rarity],fontWeight:700,textAlign:"center",padding:"0 4px"}}>{t.name}</span></>:<span style={{fontSize:20,color:"#333"}}>＋</span>}
             </div>
           );})}
         </div>
@@ -2140,13 +2171,15 @@ function ProfileTab({appState,updateState,rank,imc,av,onEdit,onLogout,posts,chec
               <div style={{fontSize:16,fontWeight:900,marginBottom:3}}>Trophées épinglés</div>
               <div style={{color:"#555",fontSize:11,fontFamily:"'Barlow',sans-serif",marginBottom:12}}>Choisis jusqu'à 3 trophées débloqués</div>
               {unlocked.length===0?<div style={{color:"#444",textAlign:"center",padding:"18px 0",fontSize:12}}>Débloque d'abord des trophées !</div>:(
-                unlocked.map(t=>{const p=(user.pinnedTrophies||[]).includes(t.id);return(
+                <div style={{maxHeight:320,overflowY:"auto",WebkitOverflowScrolling:"touch"}}>
+                {unlocked.map(t=>{const p=(user.pinnedTrophies||[]).includes(t.id);return(
                   <div key={t.id} onClick={()=>togglePin(t.id)} style={{display:"flex",alignItems:"center",gap:11,padding:"9px 11px",background:p?RC[t.rarity]+"15":"#0D0D14",borderRadius:9,marginBottom:5,border:`1px solid ${p?RC[t.rarity]+"44":"#1A1A24"}`,cursor:"pointer"}}>
                     <span style={{fontSize:20}}>{t.icon}</span>
                     <div style={{flex:1}}><div style={{fontWeight:700,fontSize:12}}>{t.name}</div><div style={{color:"#555",fontSize:10}}>{t.desc}</div></div>
                     <div style={{width:20,height:20,borderRadius:"50%",border:`2px solid ${p?RC[t.rarity]:"#2A2A3A"}`,background:p?RC[t.rarity]:"transparent",display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,flexShrink:0}}>{p?"✓":""}</div>
                   </div>
-                );})
+                );})}
+                </div>
               )}
             </div>
           </div>
