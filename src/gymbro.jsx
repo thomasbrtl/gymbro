@@ -2210,19 +2210,22 @@ function ProfileTab({appState,updateState,rank,imc,av,onEdit,onLogout,posts,chec
         addComment={(postId,text)=>updateState(s=>({posts:s.posts.map(p=>p.id!==postId?p:{...p,commentsList:[...(p.commentsList||[]),{id:genId(),pseudo:s.user.pseudo,avatarVal:s.user.avatar||"",avatarFallback:av,text,ts:Date.now()}]})}))}
         myPseudo={user.pseudo} myAvatarVal={user.avatar||""} av={av}/>}
 
-      {/* Pinned trophy detail — CENTERED */}
+      {/* Pinned trophy detail — CENTERED with remove option */}
       {selPinnedTrophy&&(
         <div className="modal-center" onClick={()=>setSelPinnedTrophy(null)}>
-          <div style={{background:"#13131A",borderRadius:20,padding:26,textAlign:"center",border:`2px solid ${RC[selPinnedTrophy.rarity]}55`,maxWidth:300,width:"calc(100% - 48px)",animation:"scaleIn .3s cubic-bezier(.34,1.56,.64,1)"}} onClick={e=>e.stopPropagation()}>
-            <div style={{fontSize:54,marginBottom:8}}>{selPinnedTrophy.icon}</div>
+          <div style={{background:"#13131A",borderRadius:20,padding:24,textAlign:"center",border:`2px solid ${RC[selPinnedTrophy.rarity]}55`,maxWidth:300,width:"calc(100% - 48px)",animation:"scaleIn .3s cubic-bezier(.34,1.56,.64,1)"}} onClick={e=>e.stopPropagation()}>
+            <div style={{fontSize:52,marginBottom:8}}>{selPinnedTrophy.icon}</div>
             <div style={{color:RC[selPinnedTrophy.rarity],fontSize:9,fontWeight:800,letterSpacing:".1em",textTransform:"uppercase",marginBottom:4}}>{selPinnedTrophy.rarity}</div>
             <div style={{fontSize:18,fontWeight:900,marginBottom:5}}>{selPinnedTrophy.name}</div>
             <div style={{color:"#888",fontSize:13,marginBottom:12,fontFamily:"'Barlow',sans-serif"}}>{selPinnedTrophy.desc}</div>
-            <div style={{background:"#22C55E18",border:"1px solid #22C55E44",borderRadius:8,padding:"8px 12px",marginBottom:14}}>
+            <div style={{background:"#22C55E18",border:"1px solid #22C55E44",borderRadius:8,padding:"8px 12px",marginBottom:16}}>
               <div style={{color:"#22C55E",fontWeight:800,fontSize:13}}>✓ DÉBLOQUÉ</div>
               {user.trophyDates?.[selPinnedTrophy.id]&&<div style={{color:"#555",fontSize:11,marginTop:3}}>{new Date(user.trophyDates[selPinnedTrophy.id]).toLocaleDateString("fr",{day:"numeric",month:"long",year:"numeric"})}</div>}
             </div>
-            <button onClick={()=>setSelPinnedTrophy(null)} style={{background:"#FF3D3D",border:"none",color:"#FFF",padding:"9px 22px",borderRadius:9,fontSize:12,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>Fermer</button>
+            <div style={{display:"flex",gap:8}}>
+              <button onClick={()=>{togglePin(selPinnedTrophy.id);setSelPinnedTrophy(null);}} style={{flex:1,background:"#2A1A1A",border:"1px solid #FF3D3D44",color:"#FF6060",padding:"10px 0",borderRadius:9,fontSize:12,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>🗑 Retirer</button>
+              <button onClick={()=>setSelPinnedTrophy(null)} style={{flex:1,background:"#1A1A24",border:"1px solid #2A2A3A",color:"#AAA",padding:"10px 0",borderRadius:9,fontSize:12,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>Fermer</button>
+            </div>
           </div>
         </div>
       )}

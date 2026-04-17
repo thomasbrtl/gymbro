@@ -251,35 +251,47 @@ export default function App() {
 
   async function addPost({ caption, tags, mediaUrl, isVideo }) {
     if (!supaSession || !profile) return
-    // If mediaUrl is a data URL, upload it to storage
-    let finalMediaUrl = mediaUrl
+    // Try to upload media to Storage; fall back to no media if it fails
+    // (avoids crashing the post if the storage bucket isn't set up yet)
+    let finalMediaUrl = ''
     if (mediaUrl && mediaUrl.startsWith('data:')) {
       const ext = isVideo ? 'mp4' : 'jpg'
       const file = dataURLtoFile(mediaUrl, `post.${ext}`)
       if (file) {
         const uploaded = await uploadMedia(file, supaSession.user.id)
-        if (uploaded) finalMediaUrl = uploaded
+        if (uploaded) {
+          finalMediaUrl = uploaded
+        } else {
+          // Storage not available — store a placeholder so post still saves
+          // The image won't show but the text post will work
+          console.warn('Media upload failed — posting without media')
+        }
       }
     }
     const rank = getRank(profile.points || 0)
-    const { error } = await supabase.from('posts').insert({
+    const { data: inserted, error } = await supabase.from('posts').insert({
       user_id: supaSession.user.id,
       pseudo: profile.pseudo,
-      caption,
-      tags,
-      media_url: finalMediaUrl || '',
+      caption: caption || '',
+      tags: tags || [],
+      media_url: finalMediaUrl,
       is_video: isVideo || false,
       rank_name: rank.name,
       rank_color: rank.color,
       rank_icon: rank.icon,
       points: profile.points || 0,
-    })
-    if (error) console.error('Post error:', error)
-    else {
-      // Update post count
-      await supabase.from('profiles').update({ posts_count: (profile.posts_count || 0) + 1 }).eq('id', supaSession.user.id)
-      await loadFeed()
+    }).select()
+    if (error) {
+      console.error('Post insert error:', error)
+      throw new Error(error.message)
     }
+    // Update post count in profile
+    await supabase.from('profiles')
+      .update({ posts_count: (profile.posts_count || 0) + 1 })
+      .eq('id', supaSession.user.id)
+    // Force immediate feed reload
+    await loadFeed()
+    return inserted
   }
 
   async function toggleLike(postId) {
