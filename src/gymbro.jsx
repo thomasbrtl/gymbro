@@ -750,11 +750,6 @@ function AppMain({appState,updateState,onLogout,overrides={}}){
     return()=>window.removeEventListener("gymbro_sendmsg",handler);
   },[sendMessage]);
 
-  if(viewProfile){
-    return(<><style>{CSS}</style>
-      <FullUserProfile post={viewProfile} posts={posts} following={following} toggleFollow={toggleFollow} onClose={()=>setViewProfile(null)} onMessage={(id,p,av,fb)=>{setViewProfile(null);setTab("messages");}} myPseudo={user.pseudo} av={av} userAvatar={user.avatar} myStats={stats} myUser={user} appState={appState}/></>);
-  }
-
   return(
     <div style={{fontFamily:"'Barlow Condensed','Arial Narrow',sans-serif",background:"#0A0A0F",color:"#F0F0F0",width:"100%",maxWidth:430,margin:"0 auto",minHeight:"100vh",position:"relative",overflowX:"hidden",letterSpacing:".02em"}}>
       <Toast toasts={toasts}/>
@@ -817,6 +812,13 @@ function AppMain({appState,updateState,onLogout,overrides={}}){
               ))}
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Full profile overlay — rendered inside main container for correct sizing */}
+      {viewProfile&&(
+        <div style={{position:"fixed",inset:0,background:"#0A0A0F",zIndex:300,overflowY:"auto",WebkitOverflowScrolling:"touch",maxWidth:430,left:"50%",transform:"translateX(-50%)"}}>
+          <FullUserProfile post={viewProfile} posts={posts} following={following} toggleFollow={toggleFollow} onClose={()=>setViewProfile(null)} onMessage={(id,p,av,fb)=>{setViewProfile(null);setTab("messages");}} myPseudo={user.pseudo} av={av} userAvatar={user.avatar} myStats={stats} myUser={user} appState={appState}/>
         </div>
       )}
 

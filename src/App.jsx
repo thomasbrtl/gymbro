@@ -45,11 +45,13 @@ function dataURLtoFile(dataUrl, filename) {
 }
 
 // ── Local cache helpers ──
-const LOCAL_KEY = 'gymbro_local'
-function readLocal() { try { return JSON.parse(localStorage.getItem(LOCAL_KEY) || '{}') } catch { return {} } }
+// Key is per-user so different accounts don't share programs/exercises
+let _localKey = 'gymbro_local_default'
+function setLocalKey(userId) { _localKey = userId ? `gymbro_local_${userId}` : 'gymbro_local_default' }
+function readLocal() { try { return JSON.parse(localStorage.getItem(_localKey) || '{}') } catch { return {} } }
 function writeLocal(patch) {
   const next = { ...readLocal(), ...patch }
-  localStorage.setItem(LOCAL_KEY, JSON.stringify(next))
+  localStorage.setItem(_localKey, JSON.stringify(next))
   return next
 }
 
@@ -102,7 +104,7 @@ export default function App() {
   const [follows, setFollows] = useState([])
   const [notifs, setNotifs] = useState([])
   const [conversations, setConversations] = useState([])
-  const [localData, setLocalData] = useState(() => readLocal())
+  const [localData, setLocalData] = useState({})  // Loaded after user ID is known
 
   // Force re-render with new local data
   const saveLocal = useCallback((patch) => {
@@ -114,12 +116,21 @@ export default function App() {
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSupaSession(session)
-      if (session) loadProfile(session.user.id).then(() => setAuthLoading(false))
-      else setAuthLoading(false)
+      if (session) {
+        setLocalKey(session.user.id)  // Switch to this user's local storage
+        loadProfile(session.user.id).then(() => setAuthLoading(false))
+      } else setAuthLoading(false)
     })
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_e, session) => {
       setSupaSession(session)
-      if (!session) { setProfile(null) }
+      if (session) {
+        setLocalKey(session.user.id)
+        loadProfile(session.user.id).catch(()=>{})
+      } else {
+        setLocalKey(null)
+        setProfile(null)
+        setLocalData({})  // Clear local data when logged out
+      }
     })
     return () => subscription.unsubscribe()
   }, [])
@@ -127,7 +138,11 @@ export default function App() {
   // ── Load profile ──
   const loadProfile = useCallback(async (userId) => {
     const { data } = await supabase.from('profiles').select('*').eq('id', userId).single()
-    if (data) setProfile(data)
+    if (data) {
+      setProfile(data)
+      setLocalKey(userId)  // Ensure key is set
+      setLocalData(readLocal())  // Load this user's local data
+    }
     return data
   }, [])
 
@@ -261,10 +276,23 @@ export default function App() {
   }, [supaSession, loadFeed, loadProfile, loadNotifs, loadConversations])
 
   // ══════════════════════ AUTH ══
-  async function signUp({ email, pseudo, password, sexe, age, poids, taille }) {
+  async function signUp({ email, pseudo, password, sexe, age, poids, taille, country }) {
     const { data, error } = await supabase.auth.signUp({ email, password })
     if (error) throw error
-    await supabase.from('profiles').upsert({ id: data.user.id, email, pseudo, sexe, age: +age, poids: +poids, taille: +taille, country: 'France' })
+    const uid = data.user.id
+    // Small delay to ensure auth is ready
+    await new Promise(r => setTimeout(r, 500))
+    await supabase.from('profiles').upsert({
+      id: uid, email, pseudo, sexe,
+      age: +age || 0, poids: +poids || 0, taille: +taille || 0,
+      country: country || 'France',
+      points: 0, sessions: 0, prs: 0,
+    })
+    // Explicitly load profile so UI doesn't stay blank
+    setLocalKey(uid)
+    setLocalData({})
+    await loadProfile(uid)
+    await loadFeed()
     return data
   }
   async function signIn({ email, password }) {
@@ -301,21 +329,26 @@ export default function App() {
     const uid = supaSession.user.id
     const post = feed.find(p => p.id === postId)
     if (!post) return
-    // Optimistic update
-    setFeed(f => f.map(p => {
-      if (p.id !== postId) return p
-      const nowLiked = !p.liked
-      return { ...p, liked: nowLiked, likes: nowLiked ? [...p.likes, 'x'] : p.likes.slice(1) }
+    const nowLiked = !post.liked
+    // Optimistic update — count from DB later
+    setFeed(f => f.map(p => p.id !== postId ? p : {
+      ...p, liked: nowLiked,
+      likes: Array(Math.max(0, nowLiked ? (p.likes.length||0)+1 : (p.likes.length||1)-1)).fill('x')
     }))
-    if (post.liked) {
-      await supabase.from('likes').delete().eq('post_id', postId).eq('user_id', uid)
-      await supabase.from('posts').update({ likes_count: Math.max(0, (post.likes.length || 1) - 1) }).eq('id', postId)
-    } else {
-      await supabase.from('likes').insert({ post_id: postId, user_id: uid })
-      await supabase.from('posts').update({ likes_count: (post.likes.length || 0) + 1 }).eq('id', postId)
-      if (post.userId !== uid) await supabase.from('notifications').insert({ user_id: post.userId, from_id: uid, type: 'like', post_id: postId }).catch(()=>{})
-    }
-    // Reload to sync true count
+    try {
+      if (post.liked) {
+        await supabase.from('likes').delete().eq('post_id', postId).eq('user_id', uid)
+        // Get real count and update
+        const { count } = await supabase.from('likes').select('*', { count: 'exact', head: true }).eq('post_id', postId)
+        await supabase.from('posts').update({ likes_count: count || 0 }).eq('id', postId)
+      } else {
+        await supabase.from('likes').insert({ post_id: postId, user_id: uid })
+        const { count } = await supabase.from('likes').select('*', { count: 'exact', head: true }).eq('post_id', postId)
+        await supabase.from('posts').update({ likes_count: count || 1 }).eq('id', postId)
+        if (post.userId !== uid) await supabase.from('notifications').insert({ user_id: post.userId, from_id: uid, type: 'like', post_id: postId }).catch(()=>{})
+      }
+    } catch(e) { console.error('toggleLike error:', e) }
+    // Reload to get accurate count for everyone
     await loadFeed()
   }
 
@@ -333,12 +366,17 @@ export default function App() {
     if (!supaSession || userId === supaSession.user.id) return
     const uid = supaSession.user.id
     const isFollowing = follows.includes(userId)
-    if (isFollowing) {
-      await supabase.from('follows').delete().eq('follower_id', uid).eq('following_id', userId)
-    } else {
-      await supabase.from('follows').insert({ follower_id: uid, following_id: userId })
-      await supabase.from('notifications').insert({ user_id: userId, from_id: uid, type: 'follow' }).catch(()=>{})
-    }
+    // Optimistic update — button changes immediately
+    setFollows(f => isFollowing ? f.filter(id => id !== userId) : [...f, userId])
+    try {
+      if (isFollowing) {
+        await supabase.from('follows').delete().eq('follower_id', uid).eq('following_id', userId)
+      } else {
+        await supabase.from('follows').insert({ follower_id: uid, following_id: userId })
+        await supabase.from('notifications').insert({ user_id: userId, from_id: uid, type: 'follow' }).catch(()=>{})
+      }
+    } catch(e) { console.error('toggleFollow error:', e) }
+    // Confirm from DB
     await loadFollows()
   }
 
