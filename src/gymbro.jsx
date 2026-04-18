@@ -624,7 +624,7 @@ function AppMain({appState,updateState,onLogout,overrides={}}){
   },[addToast,updateState,checkTrophies]);
 
   const _addPost=p=>{
-    const newPost={...p,id:genId(),userId:"me",pseudo:user.pseudo,avatarVal:user.avatar||"",avatarFallback:av,rankTier:getRank(stats.points).tier,rankName:getRank(stats.points).name,rankColor:getRank(stats.points).color,rankIcon:getRank(stats.points).icon,points:stats.points,ts:Date.now(),likes:[],commentsList:[]};
+    const newPost={...p,id:genId(),userId:"me",pseudo:user.pseudo,avatarVal:user.avatar||"",avatarFallback:av,rankTier:getRank(stats.points).tier,rankName:getRank(stats.points).name,rankColor:getRank(stats.points).color,rankIcon:getRank(stats.points).icon,points:stats.points,ts:Date.now(),likes:[],commentsList:[],imgPos:p.imgPos||"center"};
     updateState(s=>{
       const newStats={...s.stats,posts:s.stats.posts+1};
       checkTrophies(newStats,s.stats,s.user);
@@ -641,7 +641,17 @@ function AppMain({appState,updateState,onLogout,overrides={}}){
       return {posts:s.posts.map(p=>p.id!==id?p:{...p,liked:nowLiked,likes:nowLiked?[...p.likes,"me"]:p.likes.filter(x=>x!=="me")})};
     });
   };
-  const toggleLike = overrides.toggleLike || _toggleLike;
+  const toggleLike = (id) => {
+    // Optimistic update: flip liked state and count immediately
+    updateState(s=>({posts:s.posts.map(p=>{
+      if(p.id!==id)return p;
+      const nowLiked=!p.liked;
+      const newLikes=nowLiked?[...p.likes,"me"]:p.likes.filter(x=>x!=="me");
+      return {...p,liked:nowLiked,likes:newLikes};
+    })}));
+    // Then sync to Supabase (overrides.toggleLike reloads feed after)
+    if(overrides.toggleLike) overrides.toggleLike(id);
+  };
 
   const _addComment=(postId,text)=>{
     updateState(s=>{
@@ -659,7 +669,12 @@ function AppMain({appState,updateState,onLogout,overrides={}}){
   };
 
   const addComment = overrides.addComment || _addComment;
-  const toggleFollow=uid=>updateState(s=>({following:s.following.includes(uid)?s.following.filter(x=>x!==uid):[...s.following,uid]}));
+  const toggleFollow=(uid)=>{
+    // Optimistic local update
+    updateState(s=>({following:s.following.includes(uid)?s.following.filter(x=>x!==uid):[...s.following,uid]}));
+    // Supabase sync
+    if(overrides.toggleFollow) overrides.toggleFollow(uid);
+  };
 
   const _sendMessage=(toId,toPseudo,toAvatarVal,toAvatarFb,text)=>{
     if(toId==="me"||toPseudo===user.pseudo)return; // no self-messaging
@@ -729,9 +744,20 @@ function AppMain({appState,updateState,onLogout,overrides={}}){
   },[exercises,appState,updateState,checkTrophies,giveXP,addToast]);
 
   const saveSession = overrides.saveSession || _saveSession;
+
+  // Listen for message send events from MessagesTab (Supabase bridge)
+  useEffect(()=>{
+    const handler=(e)=>{
+      const {toId,toPseudo,avatarVal,avatarFb,text}=e.detail||{};
+      if(toId&&text) sendMessage(toId,toPseudo,avatarVal,avatarFb,text);
+    };
+    window.addEventListener("gymbro_sendmsg",handler);
+    return()=>window.removeEventListener("gymbro_sendmsg",handler);
+  },[sendMessage]);
+
   if(viewProfile){
     return(<><style>{CSS}</style>
-      <FullUserProfile post={viewProfile} posts={posts} following={following} toggleFollow={toggleFollow} onClose={()=>setViewProfile(null)} onMessage={(id,p,av,fb)=>{sendMessage(id,p,av,fb,"Salut ! 💪");setViewProfile(null);setTab("messages");}} myPseudo={user.pseudo} av={av} userAvatar={user.avatar} myStats={stats} myUser={user} appState={appState}/></>);
+      <FullUserProfile post={viewProfile} posts={posts} following={following} toggleFollow={toggleFollow} onClose={()=>setViewProfile(null)} onMessage={(id,p,av,fb)=>{setViewProfile(null);setTab("messages");}} myPseudo={user.pseudo} av={av} userAvatar={user.avatar} myStats={stats} myUser={user} appState={appState}/></>);
   }
 
   return(
@@ -817,7 +843,7 @@ function AppMain({appState,updateState,onLogout,overrides={}}){
 // ══════════════════════ FEED ══
 function FeedTab({appState,updateState,addPost,onOpenProfile,toggleLike,addComment,toggleFollow,following,av,myPseudo,myAvatarVal}){
   const {posts=[]}=appState;
-  const [feedTab,setFeedTab]=useState("following");
+  const [feedTab,setFeedTab]=useState("discover");
   const [search,setSearch]=useState("");
   const [rankFilter,setRankFilter]=useState("all");
   const [commentPostId,setCommentPostId]=useState(null);
@@ -828,7 +854,7 @@ function FeedTab({appState,updateState,addPost,onOpenProfile,toggleLike,addComme
   const filtered=posts.filter(p=>{
     if(feedTab==="following"&&p.userId!=="me"&&!following.includes(p.userId))return false;
     if(search){const q=search.toLowerCase();if(!p.caption?.toLowerCase().includes(q)&&!p.pseudo?.toLowerCase().includes(q)&&!(p.tags||[]).some(t=>t.toLowerCase().includes(q)))return false;}
-    if(rankFilter!=="all"&&p.rankTier!==rankFilter)return false;
+    if(rankFilter!=="all"){const tier=(p.rankTier||(p.rankName||"").split(" ")[0].toLowerCase()||"silver");if(tier!==rankFilter)return false;}
     return true;
   });
 
@@ -871,30 +897,30 @@ function FeedTab({appState,updateState,addPost,onOpenProfile,toggleLike,addComme
       <button onClick={()=>setShowCreate(true)} style={{position:"fixed",bottom:"calc(env(safe-area-inset-bottom,0px) + 64px)",right:"calc(50% - 210px + 14px)",width:50,height:50,borderRadius:"50%",background:"linear-gradient(135deg,#FF3D3D,#FF6B00)",border:"none",color:"#FFF",fontSize:24,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",boxShadow:"0 4px 18px rgba(255,61,61,.35)",zIndex:90}}>+</button>
 
       {commentPostId&&(
-        <div className="modal-bg" onClick={()=>{setCommentPostId(null);setCommentText("");}}>
-          <div className="modal-sheet" onClick={e=>e.stopPropagation()} style={{maxHeight:"75vh",display:"flex",flexDirection:"column"}}>
-            <div className="modal-handle"/>
-            <div style={{padding:"0 16px",flex:1,display:"flex",flexDirection:"column",minHeight:0}}>
-              <div style={{fontWeight:800,fontSize:16,marginBottom:12}}>Commentaires</div>
-              <div style={{flex:1,overflowY:"auto",minHeight:0}}>
-                {(posts.find(p=>p.id===commentPostId)?.commentsList||[]).length===0
-                  ?<div style={{color:"#444",textAlign:"center",padding:"24px 0",fontSize:13}}>Aucun commentaire.</div>
-                  :(posts.find(p=>p.id===commentPostId)?.commentsList||[]).map(c=>(
-                    <div key={c.id} style={{display:"flex",gap:9,marginBottom:12}}>
-                      <Avatar val={c.avatarVal||""} fallback={c.avatarFallback||"👤"} size={30} border="#2A2A3A"/>
-                      <div style={{flex:1,minWidth:0}}>
-                        <div style={{fontWeight:700,fontSize:12,marginBottom:3}}>@{c.pseudo}</div>
-                        <div style={{color:"#CCC",fontSize:13,fontFamily:"'Barlow',sans-serif",lineHeight:1.45,wordBreak:"break-word",whiteSpace:"pre-wrap"}}>{c.text}</div>
-                      </div>
+        <div className="modal-center" onClick={()=>{setCommentPostId(null);setCommentText("");}} style={{alignItems:"center",zIndex:500}}>
+          <div onClick={e=>e.stopPropagation()} style={{background:"#13131A",borderRadius:20,width:"calc(100% - 32px)",maxWidth:390,maxHeight:"78vh",display:"flex",flexDirection:"column",border:"1px solid #2A2A3A",boxShadow:"0 8px 40px #000000CC",animation:"scaleIn .25s cubic-bezier(.34,1.56,.64,1)"}}>
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"16px 16px 12px",borderBottom:"1px solid #1E1E28",flexShrink:0}}>
+              <div style={{fontWeight:900,fontSize:16}}>Commentaires</div>
+              <button onClick={()=>{setCommentPostId(null);setCommentText("");}} style={{background:"none",border:"none",color:"#666",fontSize:20,cursor:"pointer",lineHeight:1}}>✕</button>
+            </div>
+            <div style={{flex:1,overflowY:"auto",WebkitOverflowScrolling:"touch",padding:"12px 16px",minHeight:0}}>
+              {(posts.find(p=>p.id===commentPostId)?.commentsList||[]).length===0
+                ?<div style={{color:"#444",textAlign:"center",padding:"28px 0",fontSize:13}}>Aucun commentaire. Sois le premier !</div>
+                :(posts.find(p=>p.id===commentPostId)?.commentsList||[]).map(cm=>(
+                  <div key={cm.id} style={{display:"flex",gap:9,marginBottom:14}}>
+                    <Avatar val={cm.avatarVal||""} fallback={cm.avatarFallback||"👤"} size={30} border="#2A2A3A"/>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{fontWeight:700,fontSize:12,marginBottom:3,color:"#E0E0E0"}}>@{cm.pseudo}</div>
+                      <div style={{color:"#CCC",fontSize:13,fontFamily:"'Barlow',sans-serif",lineHeight:1.45,wordBreak:"break-word"}}>{cm.text}</div>
                     </div>
-                  ))
-                }
-              </div>
-              <div style={{display:"flex",gap:8,paddingTop:10,paddingBottom:8,borderTop:"1px solid #1A1A24",marginTop:4}}>
-                <Avatar val={myAvatarVal} fallback={av} size={30} border="#2A2A3A"/>
-                <textarea ref={commentRef} className="inp" placeholder="Commenter..." value={commentText} onChange={e=>setCommentText(e.target.value)} onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();submitComment();}}} rows={2} style={{flex:1,fontSize:13,padding:"9px 11px",resize:"none",lineHeight:1.4,fontFamily:"'Barlow',sans-serif",minHeight:40,maxHeight:90}}/>
-                <button onClick={submitComment} disabled={!commentText.trim()} style={{background:"#FF3D3D",border:"none",color:"#FFF",borderRadius:10,padding:"0 14px",cursor:"pointer",fontWeight:800,fontSize:16,alignSelf:"flex-end",height:40,flexShrink:0}}>→</button>
-              </div>
+                  </div>
+                ))
+              }
+            </div>
+            <div style={{display:"flex",gap:8,padding:"10px 14px 14px",borderTop:"1px solid #1E1E28",flexShrink:0}}>
+              <Avatar val={myAvatarVal} fallback={av} size={30} border="#2A2A3A"/>
+              <textarea ref={commentRef} className="inp" placeholder="Commenter..." value={commentText} onChange={e=>setCommentText(e.target.value)} onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();submitComment();}}} rows={2} style={{flex:1,fontSize:13,padding:"9px 11px",resize:"none",lineHeight:1.4,fontFamily:"'Barlow',sans-serif",minHeight:38,maxHeight:80}}/>
+              <button onClick={submitComment} disabled={!commentText.trim()} style={{background:"#FF3D3D",border:"none",color:"#FFF",borderRadius:10,padding:"0 13px",cursor:"pointer",fontWeight:800,fontSize:16,alignSelf:"flex-end",height:38,flexShrink:0}}>→</button>
             </div>
           </div>
         </div>
@@ -923,7 +949,7 @@ function PostCard({post,i,onProfile,toggleLike,onComment,following,toggleFollow,
         {!isMe&&<button onClick={e=>{e.stopPropagation();toggleFollow();}} style={{background:isFollowing?"#1A1A24":"#FF3D3D22",border:`1px solid ${isFollowing?"#333":"#FF3D3D66"}`,color:isFollowing?"#888":"#FF3D3D",padding:"4px 10px",borderRadius:20,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit",flexShrink:0,marginLeft:6}}>{isFollowing?"✓ Suivi":"+Follow"}</button>}
       </div>
       {post.mediaUrl&&<div style={{borderRadius:11,overflow:"hidden",marginBottom:8,background:"#0D0D14"}}>
-        {post.isVideo?<video src={post.mediaUrl} style={{width:"100%",maxHeight:300,objectFit:"cover",display:"block"}} controls/>:<img src={post.mediaUrl} alt="" style={{width:"100%",maxHeight:340,objectFit:"cover",display:"block"}}/>}
+        {post.isVideo?<video src={post.mediaUrl} style={{width:"100%",maxHeight:300,objectFit:"cover",display:"block"}} controls/>:<img src={post.mediaUrl} alt="" style={{width:"100%",maxHeight:340,objectFit:"cover",objectPosition:post.imgPos||"center",display:"block"}}/>}
       </div>}
       {post.caption&&<p style={{margin:"0 0 8px",fontSize:13,color:"#CCC",lineHeight:1.45,fontFamily:"'Barlow',sans-serif",wordBreak:"break-word"}}>
         <span style={{fontWeight:700,color:"#F0F0F0"}}>@{post.pseudo} </span>{post.caption}
@@ -943,7 +969,7 @@ function PostCard({post,i,onProfile,toggleLike,onComment,following,toggleFollow,
 }
 
 function CreatePostModal({onClose,onSubmit}){
-  const [caption,setCaption]=useState(""); const [tags,setTags]=useState(""); const [isVideo,setIsVideo]=useState(false); const [mediaPreview,setMediaPreview]=useState(null); const [loading,setLoading]=useState(false);
+  const [caption,setCaption]=useState(""); const [tags,setTags]=useState(""); const [isVideo,setIsVideo]=useState(false); const [mediaPreview,setMediaPreview]=useState(null); const [loading,setLoading]=useState(false); const [imgPos,setImgPos]=useState("center");
   const fileRef=useRef();
   const handleFile=e=>{
     const file=e.target.files[0]; if(!file)return;
@@ -956,7 +982,7 @@ function CreatePostModal({onClose,onSubmit}){
     if(loading)return;
     setLoading(true);
     const tagArr=tags.split(/[\s,]+/).map(t=>t.replace(/^#/,"")).filter(Boolean);
-    await onSubmit({caption,tags:tagArr,mediaUrl:mediaPreview,isVideo});
+    await onSubmit({caption,tags:tagArr,mediaUrl:mediaPreview,isVideo,imgPos});
     setLoading(false);
   };
   return(
@@ -973,13 +999,24 @@ function CreatePostModal({onClose,onSubmit}){
         </div>
         {/* Scrollable body */}
         <div style={{overflowY:"auto",WebkitOverflowScrolling:"touch",padding:"14px 16px 18px",flex:1}}>
-          <div onClick={()=>fileRef.current.click()} style={{background:"#0D0D14",border:"2px dashed #2A2A3A",borderRadius:12,height:150,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",marginBottom:10,overflow:"hidden",transition:"border-color .2s"}}>
+          {/* Photo zone: tap to pick, then drag/pinch hint */}
+          <div style={{position:"relative",borderRadius:12,overflow:"hidden",marginBottom:10,background:"#0D0D14",aspectRatio:"1",border:"2px dashed #2A2A3A",cursor:"pointer"}}
+            onClick={()=>!mediaPreview&&fileRef.current.click()}>
             {mediaPreview
-              ?(isVideo?<video src={mediaPreview} style={{width:"100%",height:"100%",objectFit:"cover"}}/>:<img src={mediaPreview} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/>)
-              :<div style={{textAlign:"center",color:"#444"}}>
+              ?(isVideo
+                ?<video src={mediaPreview} style={{width:"100%",height:"100%",objectFit:"cover"}}/>
+                :<img src={mediaPreview} alt="" style={{width:"100%",height:"100%",objectFit:"cover",objectPosition:imgPos}}/>)
+              :<div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",height:"100%",color:"#444"}}>
                 <div style={{fontSize:36,marginBottom:6}}>📷</div>
                 <div style={{fontSize:12,fontFamily:"'Barlow',sans-serif"}}>Ajouter une photo / vidéo</div>
               </div>}
+            {mediaPreview&&!isVideo&&(
+              <div style={{position:"absolute",bottom:0,left:0,right:0,background:"linear-gradient(transparent,#000000AA)",padding:"20px 10px 8px",display:"flex",justifyContent:"center",gap:6}}>
+                {[["center","⬜ Centre"],["top","⬆️ Haut"],["bottom","⬇️ Bas"]].map(([pos,lbl])=>(
+                  <button key={pos} onClick={e=>{e.stopPropagation();setImgPos(pos);}} style={{background:imgPos===pos?"#FF3D3D":"rgba(0,0,0,.6)",border:`1px solid ${imgPos===pos?"#FF3D3D":"#444"}`,color:"#FFF",borderRadius:6,padding:"3px 8px",fontSize:10,cursor:"pointer",fontFamily:"inherit",fontWeight:700}}>{lbl}</button>
+                ))}
+              </div>
+            )}
           </div>
           <input ref={fileRef} type="file" accept="image/*,video/*" style={{display:"none"}} onChange={handleFile}/>
           {mediaPreview&&<button onClick={e=>{e.stopPropagation();setMediaPreview(null);}} style={{background:"none",border:"1px solid #FF3D3D44",color:"#FF6060",borderRadius:7,padding:"3px 9px",fontSize:11,cursor:"pointer",fontFamily:"inherit",marginBottom:10,display:"block"}}>✕ Retirer</button>}
@@ -995,7 +1032,14 @@ function CreatePostModal({onClose,onSubmit}){
 function FullUserProfile({post,posts,following,toggleFollow,onClose,onMessage,myPseudo,av,userAvatar,myStats,myUser,appState}){
   const isMe=post.userId==="me"||post.pseudo===myPseudo;
   // For own profile: use real live stats; for others: use post snapshot
-  const displayStats=isMe&&myStats?myStats:{sessions:0,prs:0,points:post.points||0,earlySession:false,nightSession:false,weekendSessions:0,posts:0,streak:0,totalLikes:0,followers:0,following:0,commentsSent:0,changedCountry:false};
+  const displayStats=isMe&&myStats?myStats:{
+    sessions:0,prs:0,points:post.points||0,
+    earlySession:false,nightSession:false,weekendSessions:0,
+    posts:userPosts.length,streak:0,totalLikes:0,
+    followers:0,following:0,commentsSent:0,changedCountry:false
+  };
+  // For other users: show trophies they'd have based on their XP
+  // (rank trophies are deterministic from points)
   const displayUser=isMe&&myUser?myUser:null;
   const liveRank=getRank(displayStats.points);
   const rank=isMe&&myStats?liveRank:{name:post.rankName||"Silver I",color:post.rankColor||"#94A3B8",icon:post.rankIcon||"🥈",tier:post.rankTier||"silver"};
@@ -1006,7 +1050,7 @@ function FullUserProfile({post,posts,following,toggleFollow,onClose,onMessage,my
   const unlocked=TROPHIES.filter(t=>t.condition(displayStats));
   const pinnedTrophies=(displayUser?.pinnedTrophies||[]).map(id=>TROPHIES.find(t=>t.id===id)).filter(Boolean);
   return(
-    <div className="fullscreen">
+    <div className="fullscreen" style={{overflowY:"auto",WebkitOverflowScrolling:"touch"}}>
       <div style={{display:"flex",alignItems:"center",gap:12,padding:"max(env(safe-area-inset-top,0px),14px) 16px 10px",borderBottom:"1px solid #1A1A24",background:"#0A0A0F",position:"sticky",top:0,zIndex:10}}>
         <button onClick={onClose} style={{background:"none",border:"none",color:"#888",fontSize:22,cursor:"pointer",lineHeight:1}}>←</button>
         <div style={{fontSize:16,fontWeight:900}}>@{post.pseudo}</div>
@@ -1112,8 +1156,17 @@ function MessagesTab({conversations,user,av,updateState}){
   const sendMsg=()=>{
     if(!msgText.trim()||!conv)return;
     const text=msgText.trim(); setMsgText("");
-    updateState(s=>{const convs=s.conversations.map(c=>c.id!==conv.id?c:{...c,messages:[...c.messages,{id:genId(),from:"me",text,ts:Date.now()}]});return {conversations:convs};});
-    // No auto-reply — real app would use server
+    // Optimistic local update
+    updateState(s=>{
+      const convs=(s.conversations||[]).map(cv=>cv.id!==conv.id?cv:{...cv,messages:[...cv.messages,{id:genId(),from:"me",text,ts:Date.now()}]});
+      return {conversations:convs};
+    });
+    // Sync to Supabase via parent sendMessage
+    // conv.withId is the recipient's user ID
+    if(conv.withId && conv.withId !== "me"){
+      // Call global sendMessage if available through window event
+      window.dispatchEvent(new CustomEvent("gymbro_sendmsg",{detail:{toId:conv.withId,toPseudo:conv.withPseudo,avatarVal:conv.avatarVal||"",avatarFb:conv.avatarFallback||"👤",text}}));
+    }
   };
   if(openConv&&conv){
     return(
@@ -1875,8 +1928,26 @@ function RankedTab({appState,updateState,rank,nextRank,rankPct,stats}){
   const [showCountry,setShowCountry]=useState(false);
   const [showRankPath,setShowRankPath]=useState(false);
 
+  const [allUsers,setAllUsers]=useState([]);
+  useEffect(()=>{
+    // Load top players from profiles table
+    const loadUsers=async()=>{
+      try{
+        const {supabase:sb}=await import('./supabase.js');
+        const {data}=await sb.from('profiles').select('id,pseudo,points,sexe,pinned_trophies').order('points',{ascending:false}).limit(50);
+        if(data) setAllUsers(data);
+      }catch(e){console.error('loadUsers error:',e);}
+    };
+    loadUsers();
+  },[]);
   const lb=[
-    {u:appState.user.pseudo||"toi",pts:stats.points,r:rank,av:appState.user.sexe==="femme"?"👩":"👨",me:true},
+    // Always include self with live stats
+    {u:appState.user.pseudo||"toi",pts:stats.points,r:rank,av:appState.user.sexe==="femme"?"👩":"👨",me:true,id:"me"},
+    // Add other users from Supabase (exclude self to avoid duplicates)
+    ...allUsers.filter(u=>u.pseudo!==appState.user.pseudo).map(u=>{
+      const r2=getRank(u.points||0);
+      return {u:u.pseudo||"?",pts:u.points||0,r:r2,av:u.sexe==="femme"?"👩":"👨",me:false,id:u.id};
+    })
   ].sort((a,b)=>b.pts-a.pts);
 
   return(
