@@ -318,9 +318,9 @@ export default function App() {
   async function signOut() { await supabase.auth.signOut() }
 
   // ══════════════════════ SOCIAL ══
-  async function addPost({ caption, tags, mediaUrl, isVideo, imgPos }) {
+  async function addPost({ caption, tags, mediaUrl, isVideo }) {
     if (!supaSession || !profile) return
-    // Try to upload media; if storage isn't set up, post without media
+    // Upload media si disponible
     let finalUrl = ''
     if (mediaUrl?.startsWith('data:')) {
       try {
@@ -330,27 +330,28 @@ export default function App() {
           const up = await uploadMedia(file, supaSession.user.id)
           if (up) finalUrl = up
         }
-      } catch(e) { console.warn('Media upload failed, posting without media:', e) }
+      } catch(e) { console.warn('Upload échoué, post sans media:', e) }
     }
     const rank = getRankInfo(profile.points || 0)
-    // Build insert object — only include img_pos if column exists
-    const insertObj = {
-      user_id: supaSession.user.id, pseudo: profile.pseudo,
-      caption: caption || '', tags: tags || [],
-      media_url: finalUrl, is_video: isVideo || false,
-      rank_name: rank.name, rank_color: rank.color, rank_icon: rank.icon,
+    const { error } = await supabase.from('posts').insert({
+      user_id: supaSession.user.id,
+      pseudo: profile.pseudo,
+      caption: caption || '',
+      tags: tags || [],
+      media_url: finalUrl,
+      is_video: isVideo || false,
+      rank_name: rank.name,
+      rank_color: rank.color,
+      rank_icon: rank.icon,
       points: profile.points || 0,
+    })
+    if (error) {
+      console.error('Erreur insert post:', error.message)
+      throw new Error(error.message)
     }
-    // Try with img_pos first; if column doesn't exist, retry without it
-    let error = null
-    const { error: err1 } = await supabase.from('posts').insert({ ...insertObj, img_pos: imgPos || 'center' })
-    if (err1) {
-      console.warn('Insert with img_pos failed, trying without:', err1.message)
-      const { error: err2 } = await supabase.from('posts').insert(insertObj)
-      error = err2
-    }
-    if (error) { console.error('Post insert failed:', error); throw new Error(error.message) }
-    await supabase.from('profiles').update({ posts_count: (profile.posts_count || 0) + 1 }).eq('id', supaSession.user.id)
+    await supabase.from('profiles')
+      .update({ posts_count: (profile.posts_count || 0) + 1 })
+      .eq('id', supaSession.user.id)
     await loadFeed()
   }
 
@@ -456,10 +457,17 @@ export default function App() {
     const today = new Date().toDateString()
     const isNewDay = (profile.last_session_date || '') !== today
 
-    // Save to Supabase
-    await supabase.from('session_history').insert({ user_id: supaSession.user.id, day_name: dayName, program_name: programName, duration_sec: durationSec, exercises: result })
+    // Save to Supabase (non-blocking — local data updates regardless)
+    supabase.from('session_history').insert({
+      user_id: supaSession.user.id, day_name: dayName,
+      program_name: programName, duration_sec: durationSec, exercises: result
+    }).then(({error})=>{ if(error) console.warn('session_history insert:', error.message) })
     for (const ex of result) {
-      if (ex.sets?.length) await supabase.from('exercise_records').insert({ user_id: supaSession.user.id, name: ex.name, sets: ex.sets }).catch(()=>{})
+      if (ex.sets?.length) {
+        supabase.from('exercise_records').insert({
+          user_id: supaSession.user.id, name: ex.name, sets: ex.sets
+        }).catch(()=>{})
+      }
     }
 
     // Update local cache

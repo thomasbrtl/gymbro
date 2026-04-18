@@ -410,65 +410,44 @@ export default function GymbroApp({ supabaseMode, supabaseCallbacks, externalApp
 // Adapts the Supabase data shape into the AppMain props
 function SupabaseBridge({ callbacks, externalAppState, isAuthenticated, externalSaveLocal }) {
   const [screen, setScreen] = useState("splash");
-  // Local state for things not in Supabase (programs, exercises, sessionHistory)
-  // Also used to force re-renders when local data changes
-  const [localData, setLocalData] = useState(() => {
-    try { return JSON.parse(localStorage.getItem("gymbro_local") || "{}"); } catch { return {}; }
-  });
 
-  // Use externalSaveLocal from App.jsx if available (keeps single source of truth)
-  // Otherwise fall back to local state
-  const saveLocal = (patch) => {
-    if (externalSaveLocal) {
-      externalSaveLocal(patch);
-    } else {
-      setLocalData(prev => {
-        const next = { ...prev, ...patch };
-        try { localStorage.setItem("gymbro_local", JSON.stringify(next)); } catch {}
-        return next;
-      });
-    }
-  };
-
-  // If Supabase says user is authenticated, show main app
   if (isAuthenticated && externalAppState) {
     const { onSignUp, onSignIn, onLogout, addPost, toggleLike, addComment,
             toggleFollow, sendMessage, updateProfile, saveSession,
             updatePrograms, updatePinnedTrophies, updateTrophyDate, updateCountry } = callbacks;
 
-    // Merge externalAppState with localData so UI always has fresh local data
-    const mergedAppState = {
-      ...externalAppState,
-      programs: localData.programs || externalAppState.programs || [],
-      exercises: localData.exercises || externalAppState.exercises || {},
-      sessionHistory: localData.sessionHistory || externalAppState.sessionHistory || [],
-    };
+    // externalAppState already contains fresh localData (programs/exercises/sessionHistory)
+    // because App.jsx builds appState from its own localData state.
+    // We just use it directly — no need for a separate local state here.
 
-    // updateState wrapper
     const updateState = (patch) => {
-      const update = typeof patch === "function" ? patch(mergedAppState) : patch;
-      // Supabase
+      const update = typeof patch === "function" ? patch(externalAppState) : patch;
       if (update.user) updateProfile(update.user).catch(e=>console.error('updateProfile:',e));
       if (update.country) updateCountry(update.country).catch(()=>{});
       if (update.user?.pinnedTrophies) updatePinnedTrophies(update.user.pinnedTrophies).catch(()=>{});
-      // Local (forces re-render via saveLocal)
+      // Programs — save via callback which calls App.jsx saveLocal → triggers re-render
       const localKeys = ["programs","exercises","sessionHistory"];
       const localUpdate = Object.fromEntries(Object.entries(update).filter(([k]) => localKeys.includes(k)));
-      if (Object.keys(localUpdate).length > 0) saveLocal(localUpdate);
+      if (Object.keys(localUpdate).length > 0) {
+        if (externalSaveLocal) externalSaveLocal(localUpdate);
+        if (localUpdate.programs) updatePrograms(localUpdate.programs);
+      }
     };
 
-    // Wrap addPost to use Supabase
     const wrappedAddPost = async (p) => { await addPost(p); };
     const wrappedSaveSession = async (dayName, programName, result, durationSec) => {
+      // saveSession in App.jsx calls saveLocal internally — which updates App.jsx's
+      // localData state — which triggers a re-render of appState — which flows back
+      // into externalAppState here. The onLocalUpdate callback is a belt-and-suspenders.
       await saveSession(dayName, programName, result, durationSec, (localPatch) => {
-        saveLocal(localPatch);
+        if (externalSaveLocal) externalSaveLocal(localPatch);
       });
     };
 
     return (
       <><style>{CSS}</style>
       <AppMain
-        appState={mergedAppState}
+        appState={externalAppState}
         updateState={updateState}
         onLogout={onLogout}
         overrides={{
