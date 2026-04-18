@@ -375,13 +375,14 @@ function Signup({onOk,goBack}){
 }
 
 // ══════════════════════ ROOT ══
-export default function GymbroApp({ supabaseMode, supabaseCallbacks, externalAppState, isAuthenticated }){
+export default function GymbroApp({ supabaseMode, supabaseCallbacks, externalAppState, isAuthenticated, externalSaveLocal }){
   // ── Supabase mode: all state comes from parent ──
   if(supabaseMode){
     return <SupabaseBridge
       callbacks={supabaseCallbacks}
       externalAppState={externalAppState}
       isAuthenticated={isAuthenticated}
+      externalSaveLocal={externalSaveLocal}
     />;
   }
   // ── Offline / prototype mode (original localStorage) ──
@@ -407,7 +408,7 @@ export default function GymbroApp({ supabaseMode, supabaseCallbacks, externalApp
 
 // ══════════════════════ SUPABASE BRIDGE ══
 // Adapts the Supabase data shape into the AppMain props
-function SupabaseBridge({ callbacks, externalAppState, isAuthenticated }) {
+function SupabaseBridge({ callbacks, externalAppState, isAuthenticated, externalSaveLocal }) {
   const [screen, setScreen] = useState("splash");
   // Local state for things not in Supabase (programs, exercises, sessionHistory)
   // Also used to force re-renders when local data changes
@@ -415,13 +416,18 @@ function SupabaseBridge({ callbacks, externalAppState, isAuthenticated }) {
     try { return JSON.parse(localStorage.getItem("gymbro_local") || "{}"); } catch { return {}; }
   });
 
-  // Helper to update local data AND force re-render
+  // Use externalSaveLocal from App.jsx if available (keeps single source of truth)
+  // Otherwise fall back to local state
   const saveLocal = (patch) => {
-    setLocalData(prev => {
-      const next = { ...prev, ...patch };
-      localStorage.setItem("gymbro_local", JSON.stringify(next));
-      return next;
-    });
+    if (externalSaveLocal) {
+      externalSaveLocal(patch);
+    } else {
+      setLocalData(prev => {
+        const next = { ...prev, ...patch };
+        try { localStorage.setItem("gymbro_local", JSON.stringify(next)); } catch {}
+        return next;
+      });
+    }
   };
 
   // If Supabase says user is authenticated, show main app
@@ -981,9 +987,14 @@ function CreatePostModal({onClose,onSubmit}){
   const submit=async()=>{
     if(loading)return;
     setLoading(true);
-    const tagArr=tags.split(/[\s,]+/).map(t=>t.replace(/^#/,"")).filter(Boolean);
-    await onSubmit({caption,tags:tagArr,mediaUrl:mediaPreview,isVideo,imgPos});
-    setLoading(false);
+    try{
+      const tagArr=tags.split(/[^\w#]+/).map(t=>t.replace(/^#/,"")).filter(Boolean);
+      await onSubmit({caption,tags:tagArr,mediaUrl:mediaPreview,isVideo,imgPos});
+    }catch(e){
+      console.error("Post submit error:",e);
+    }finally{
+      setLoading(false);
+    }
   };
   return(
     <div className="modal-center" onClick={onClose} style={{alignItems:"center",zIndex:500}}>

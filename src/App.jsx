@@ -320,21 +320,36 @@ export default function App() {
   // ══════════════════════ SOCIAL ══
   async function addPost({ caption, tags, mediaUrl, isVideo, imgPos }) {
     if (!supaSession || !profile) return
+    // Try to upload media; if storage isn't set up, post without media
     let finalUrl = ''
     if (mediaUrl?.startsWith('data:')) {
-      const ext = isVideo ? 'mp4' : 'jpg'
-      const file = dataURLtoFile(mediaUrl, `post.${ext}`)
-      if (file) { const up = await uploadMedia(file, supaSession.user.id); if (up) finalUrl = up }
+      try {
+        const ext = isVideo ? 'mp4' : 'jpg'
+        const file = dataURLtoFile(mediaUrl, `post.${ext}`)
+        if (file) {
+          const up = await uploadMedia(file, supaSession.user.id)
+          if (up) finalUrl = up
+        }
+      } catch(e) { console.warn('Media upload failed, posting without media:', e) }
     }
     const rank = getRankInfo(profile.points || 0)
-    const { error } = await supabase.from('posts').insert({
+    // Build insert object — only include img_pos if column exists
+    const insertObj = {
       user_id: supaSession.user.id, pseudo: profile.pseudo,
       caption: caption || '', tags: tags || [],
-      media_url: finalUrl, is_video: isVideo || false, img_pos: imgPos || 'center',
+      media_url: finalUrl, is_video: isVideo || false,
       rank_name: rank.name, rank_color: rank.color, rank_icon: rank.icon,
       points: profile.points || 0,
-    })
-    if (error) { console.error('Post error:', error); throw new Error(error.message) }
+    }
+    // Try with img_pos first; if column doesn't exist, retry without it
+    let error = null
+    const { error: err1 } = await supabase.from('posts').insert({ ...insertObj, img_pos: imgPos || 'center' })
+    if (err1) {
+      console.warn('Insert with img_pos failed, trying without:', err1.message)
+      const { error: err2 } = await supabase.from('posts').insert(insertObj)
+      error = err2
+    }
+    if (error) { console.error('Post insert failed:', error); throw new Error(error.message) }
     await supabase.from('profiles').update({ posts_count: (profile.posts_count || 0) + 1 }).eq('id', supaSession.user.id)
     await loadFeed()
   }
@@ -530,5 +545,5 @@ export default function App() {
     updateCountry: async (c) => { await supabase.from('profiles').update({ country: c }).eq('id', supaSession.user.id); await loadProfile(supaSession.user.id) },
   }
 
-  return <GymbroOffline supabaseMode={true} supabaseCallbacks={callbacks} externalAppState={appState} isAuthenticated={true} />
+  return <GymbroOffline supabaseMode={true} supabaseCallbacks={callbacks} externalAppState={appState} isAuthenticated={true} externalSaveLocal={saveLocal} />
 }
