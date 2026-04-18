@@ -438,23 +438,17 @@ function SupabaseBridge({ callbacks, externalAppState, isAuthenticated }) {
       sessionHistory: localData.sessionHistory || externalAppState.sessionHistory || [],
     };
 
-    // updateState wrapper — routes to Supabase or local as appropriate
+    // updateState wrapper
     const updateState = (patch) => {
       const update = typeof patch === "function" ? patch(mergedAppState) : patch;
-
-      // Supabase updates
-      if (update.user) updateProfile(update.user);
-      if (update.country) updateCountry(update.country);
-      if (update.user?.pinnedTrophies) updatePinnedTrophies(update.user.pinnedTrophies);
-
-      // Local-only updates (programs, exercises, sessionHistory) — save + re-render
+      // Supabase
+      if (update.user) updateProfile(update.user).catch(e=>console.error('updateProfile:',e));
+      if (update.country) updateCountry(update.country).catch(()=>{});
+      if (update.user?.pinnedTrophies) updatePinnedTrophies(update.user.pinnedTrophies).catch(()=>{});
+      // Local (forces re-render via saveLocal)
       const localKeys = ["programs","exercises","sessionHistory"];
       const localUpdate = Object.fromEntries(Object.entries(update).filter(([k]) => localKeys.includes(k)));
-      if (Object.keys(localUpdate).length > 0) {
-        saveLocal(localUpdate);
-        // Also call updatePrograms callback if programs changed
-        if (localUpdate.programs) updatePrograms(localUpdate.programs);
-      }
+      if (Object.keys(localUpdate).length > 0) saveLocal(localUpdate);
     };
 
     // Wrap addPost to use Supabase
@@ -531,14 +525,14 @@ function SupabaseLogin({ onOk, goBack, goSignup }) {
 // ── Supabase Signup ──
 function SupabaseSignup({ onOk, goBack }) {
   const [step,setStep]=useState(0);const [errs,setErrs]=useState({});const [loading,setLoading]=useState(false);const [err,setErr]=useState("");
-  const [f,setF]=useState({email:"",pseudo:"",password:"",confirm:"",age:"",sexe:"",poids:"",taille:""});
+  const [f,setF]=useState({email:"",pseudo:"",password:"",confirm:"",age:"",sexe:"",poids:"",taille:"",country:"France"});
   const upd=(k,v)=>{setF(p=>({...p,[k]:v}));setErrs(p=>({...p,[k]:""}));};
   const validate=()=>{const e={};if(step===0){if(!f.email.match(/^[^\s@]+@[^\s@]+\.[^\s@]+$/))e.email="Email invalide";if(!f.pseudo||f.pseudo.length<3)e.pseudo="3 chars min";if(/\s/.test(f.pseudo))e.pseudo="Pas d'espaces";if(!f.password||f.password.length<6)e.password="6 chars min";if(f.password!==f.confirm)e.confirm="Ne correspond pas";}if(step===1){const a=Number(f.age);if(!f.age||a<13||a>100)e.age="13-100";if(!f.sexe)e.sexe="Requis";}if(step===2){const p=Number(f.poids),t=Number(f.taille);if(!f.poids||p<30||p>300)e.poids="30-300kg";if(!f.taille||t<100||t>250)e.taille="100-250cm";}setErrs(e);return Object.keys(e).length===0;};
   const next=async()=>{
     if(!validate())return;
     if(step<2){setStep(s=>s+1);return;}
     setLoading(true);setErr("");
-    try { await onOk(f); }
+    try { await onOk({...f,country:f.country||"France"}); }
     catch(e){ setErr(e.message||"Erreur d'inscription"); }
     setLoading(false);
   };
@@ -564,6 +558,7 @@ function SupabaseSignup({ onOk, goBack }) {
           <div>{lbl("Poids","poids")}<div style={{position:"relative"}}><input className={`inp${errs.poids?" err":""}`} type="number" placeholder="75" value={f.poids} onChange={e=>upd("poids",e.target.value)} style={{paddingRight:40}}/><span style={{position:"absolute",right:14,top:"50%",transform:"translateY(-50%)",color:"#555",fontSize:13,pointerEvents:"none"}}>kg</span></div></div>
           <div>{lbl("Taille","taille")}<div style={{position:"relative"}}><input className={`inp${errs.taille?" err":""}`} type="number" placeholder="175" value={f.taille} onChange={e=>upd("taille",e.target.value)} style={{paddingRight:40}}/><span style={{position:"absolute",right:14,top:"50%",transform:"translateY(-50%)",color:"#555",fontSize:13,pointerEvents:"none"}}>cm</span></div></div>
           {imc&&<div style={{background:"#13131A",border:"1px solid #2A2A3A",borderRadius:10,padding:"11px 14px",display:"flex",justifyContent:"space-between",alignItems:"center"}}><span style={{fontSize:13,color:"#666",fontFamily:"'Barlow Condensed',sans-serif",fontWeight:700}}>IMC estimé</span><span style={{fontSize:22,fontWeight:900,color:Number(imc)<18.5||Number(imc)>30?"#FFD700":"#22C55E"}}>{imc}</span></div>}
+          <div><div style={{fontSize:10,fontWeight:700,color:"#555",textTransform:"uppercase",letterSpacing:".09em",marginBottom:5,fontFamily:"'Barlow Condensed',sans-serif"}}>Pays (pour le classement)</div><select className="inp" value={f.country||"France"} onChange={e=>upd("country",e.target.value)} style={{cursor:"pointer"}}>{["France","Belgique","Suisse","Canada","Allemagne","Espagne","Italie","Royaume-Uni","États-Unis"].map(p=><option key={p} value={p}>{p}</option>)}</select></div>
         </div>}
         {err&&<div style={{background:"#FF3D3D15",border:"1px solid #FF3D3D44",borderRadius:10,padding:"10px 14px",marginTop:12,color:"#FF8080",fontSize:13,fontFamily:"'Barlow',sans-serif"}}>⚠️ {err}</div>}
         <div style={{flex:1}}/>
@@ -785,7 +780,7 @@ function AppMain({appState,updateState,onLogout,overrides={}}){
         {tab==="messages" && <MessagesTab conversations={conversations} user={user} av={av} updateState={updateState}/>}
         {tab==="program"  && <ProgramTab appState={appState} updateState={updateState} saveSession={saveSession}/>}
         {tab==="trophies" && <TrophiesTab stats={stats} user={user} updateState={updateState}/>}
-        {tab==="ranked"   && <RankedTab appState={appState} updateState={updateState} rank={rank} nextRank={nextRank} rankPct={rankPct} stats={stats}/>}
+        {tab==="ranked"   && <RankedTab appState={{...appState,_openProfile:(p)=>setViewProfile(p)}} updateState={updateState} rank={rank} nextRank={nextRank} rankPct={rankPct} stats={stats}/>}
         {tab==="profile"  && <ProfileTab appState={appState} updateState={updateState} rank={rank} imc={imc} av={av} onEdit={()=>setEditProfileOpen(true)} onLogout={onLogout} posts={posts} checkTrophies={checkTrophies}/>}
       </div>
 
@@ -1031,24 +1026,25 @@ function CreatePostModal({onClose,onSubmit}){
 // ══════════════════════ FULL USER PROFILE ══
 function FullUserProfile({post,posts,following,toggleFollow,onClose,onMessage,myPseudo,av,userAvatar,myStats,myUser,appState}){
   const isMe=post.userId==="me"||post.pseudo===myPseudo;
-  // For own profile: use real live stats; for others: use post snapshot
+  // Define userPosts FIRST so it can be used in displayStats
+  const userPosts=posts.filter(p=>p.pseudo===post.pseudo&&p.mediaUrl);
+  const displayUser=isMe&&myUser?myUser:null;
+  // For own profile use real stats; for others use post snapshot + profile data attached to post
   const displayStats=isMe&&myStats?myStats:{
     sessions:0,prs:0,points:post.points||0,
     earlySession:false,nightSession:false,weekendSessions:0,
     posts:userPosts.length,streak:0,totalLikes:0,
     followers:0,following:0,commentsSent:0,changedCountry:false
   };
-  // For other users: show trophies they'd have based on their XP
-  // (rank trophies are deterministic from points)
-  const displayUser=isMe&&myUser?myUser:null;
   const liveRank=getRank(displayStats.points);
   const rank=isMe&&myStats?liveRank:{name:post.rankName||"Silver I",color:post.rankColor||"#94A3B8",icon:post.rankIcon||"🥈",tier:post.rankTier||"silver"};
-  const userPosts=posts.filter(p=>p.pseudo===post.pseudo&&p.userId==="me"&&p.mediaUrl);
   const isFollowing=following.includes(post.userId);
   const [profTab,setProfTab]=useState("posts");
   const [viewPost,setViewPost]=useState(null);
   const unlocked=TROPHIES.filter(t=>t.condition(displayStats));
-  const pinnedTrophies=(displayUser?.pinnedTrophies||[]).map(id=>TROPHIES.find(t=>t.id===id)).filter(Boolean);
+  // For own profile: use real pinned trophies. For others: use data from post._profilePinnedTrophies
+  const pinnedIds=isMe?(displayUser?.pinnedTrophies||[]):(post._profilePinnedTrophies||[]);
+  const pinnedTrophies=pinnedIds.map(id=>TROPHIES.find(t=>t.id===id)).filter(Boolean);
   return(
     <div className="fullscreen" style={{overflowY:"auto",WebkitOverflowScrolling:"touch"}}>
       <div style={{display:"flex",alignItems:"center",gap:12,padding:"max(env(safe-area-inset-top,0px),14px) 16px 10px",borderBottom:"1px solid #1A1A24",background:"#0A0A0F",position:"sticky",top:0,zIndex:10}}>
@@ -1929,25 +1925,29 @@ function RankedTab({appState,updateState,rank,nextRank,rankPct,stats}){
   const [showRankPath,setShowRankPath]=useState(false);
 
   const [allUsers,setAllUsers]=useState([]);
+  const {onOpenProfile}=appState._callbacks||{};
   useEffect(()=>{
-    // Load top players from profiles table
     const loadUsers=async()=>{
       try{
         const {supabase:sb}=await import('./supabase.js');
-        const {data}=await sb.from('profiles').select('id,pseudo,points,sexe,pinned_trophies').order('points',{ascending:false}).limit(50);
+        const {data}=await sb.from('profiles').select('id,pseudo,points,sexe,avatar_url').order('points',{ascending:false}).limit(100);
         if(data) setAllUsers(data);
-      }catch(e){console.error('loadUsers error:',e);}
+      }catch(e){console.error('loadUsers:',e);}
     };
     loadUsers();
+    const t=setInterval(loadUsers,30000);
+    return()=>clearInterval(t);
   },[]);
+  const myCountry=country||"France";
   const lb=[
-    // Always include self with live stats
-    {u:appState.user.pseudo||"toi",pts:stats.points,r:rank,av:appState.user.sexe==="femme"?"👩":"👨",me:true,id:"me"},
-    // Add other users from Supabase (exclude self to avoid duplicates)
-    ...allUsers.filter(u=>u.pseudo!==appState.user.pseudo).map(u=>{
-      const r2=getRank(u.points||0);
-      return {u:u.pseudo||"?",pts:u.points||0,r:r2,av:u.sexe==="femme"?"👩":"👨",me:false,id:u.id};
-    })
+    {u:appState.user.pseudo||"toi",pts:stats.points,r:rank,avatarUrl:appState.user.avatar||"",av:appState.user.sexe==="femme"?"👩":"👨",me:true,id:"me"},
+    ...allUsers
+      .filter(u=>u.pseudo!==appState.user.pseudo)
+      .filter(u=>myCountry==="Monde"||!u.country||u.country===myCountry)
+      .map(u=>{
+        const r2=getRank(u.points||0);
+        return {u:u.pseudo||"?",pts:u.points||0,r:r2,avatarUrl:u.avatar_url||"",av:u.sexe==="femme"?"👩":"👨",me:false,id:u.id};
+      })
   ].sort((a,b)=>b.pts-a.pts);
 
   return(
@@ -1977,10 +1977,18 @@ function RankedTab({appState,updateState,rank,nextRank,rankPct,stats}){
         <button onClick={()=>setShowCountry(true)} style={{background:"#1A1A24",border:"1px solid #2A2A3A",color:"#CCC",padding:"4px 9px",borderRadius:7,fontSize:10,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>🌍 {country}</button>
       </div>
       {lb.map((e,i)=>(
-        <div key={i} style={{display:"flex",alignItems:"center",gap:9,padding:"8px 11px",background:e.me?"#FF3D3D11":"#0D0D14",borderRadius:9,marginBottom:4,border:e.me?"1px solid #FF3D3D44":"1px solid transparent"}}>
-          <div style={{width:24,fontWeight:900,fontSize:14,color:"#FFD700",textAlign:"center"}}>#1</div>
-          <div style={{width:30,height:30,borderRadius:"50%",background:"#1A1A24",display:"flex",alignItems:"center",justifyContent:"center",fontSize:15}}>{e.av}</div>
-          <div style={{flex:1}}><div style={{fontWeight:700,fontSize:12}}>@{e.u}{e.me&&<span style={{color:"#FF3D3D",fontSize:9,marginLeft:4}}>(toi)</span>}</div><span className="rb" style={{background:e.r.color+"22",color:e.r.color,fontSize:8}}>{e.r.icon} {e.r.name}</span></div>
+        <div key={i} onClick={!e.me&&appState._openProfile?()=>appState._openProfile({userId:e.id,pseudo:e.u,avatarVal:e.avatarUrl||"",avatarFallback:e.av,rankName:e.r.name,rankColor:e.r.color,rankIcon:e.r.icon,rankTier:e.r.tier,points:e.pts}):undefined}
+          style={{display:"flex",alignItems:"center",gap:9,padding:"9px 11px",background:e.me?"#FF3D3D11":"#0D0D14",borderRadius:9,marginBottom:5,border:e.me?"1px solid #FF3D3D44":"1px solid transparent",cursor:!e.me?"pointer":"default"}}>
+          <div style={{width:26,fontWeight:900,fontSize:13,textAlign:"center",color:i===0?"#FFD700":i===1?"#94A3B8":i===2?"#CD7F32":"#555"}}>#{i+1}</div>
+          <div style={{width:32,height:32,borderRadius:"50%",background:"#1A1A24",border:`2px solid ${e.r.color}44`,overflow:"hidden",display:"flex",alignItems:"center",justifyContent:"center",fontSize:15,flexShrink:0}}>
+            {e.avatarUrl&&(e.avatarUrl.startsWith("http")||e.avatarUrl.startsWith("data:"))
+              ?<img src={e.avatarUrl} style={{width:"100%",height:"100%",objectFit:"cover"}} alt=""/>
+              :<span>{e.av}</span>}
+          </div>
+          <div style={{flex:1,minWidth:0}}>
+            <div style={{fontWeight:700,fontSize:12,color:"#F0F0F0"}}>@{e.u}{e.me&&<span style={{color:"#FF3D3D",fontSize:9,marginLeft:4}}>(toi)</span>}</div>
+            <span className="rb" style={{background:e.r.color+"22",color:e.r.color,fontSize:8}}>{e.r.icon} {e.r.name}</span>
+          </div>
           <div style={{fontWeight:800,color:e.r.color,fontSize:13}}>{e.pts.toLocaleString()}</div>
         </div>
       ))}
@@ -2228,7 +2236,6 @@ function ProfileTab({appState,updateState,rank,imc,av,onEdit,onLogout,posts,chec
         <div style={{paddingBottom:16}}>
           {[
             {l:"Séances totales",v:stats.sessions,max:100,c:"#FF3D3D"},
-            {l:"PRs battus",v:stats.prs,max:50,c:"#FFD700"},
             {l:"Streak actuel",v:stats.streak,max:30,u:"jours",c:"#22C55E"},
             {l:"Posts publiés",v:stats.posts,max:50,c:"#3B82F6"}
           ].map((s,i)=>(
@@ -2242,6 +2249,24 @@ function ProfileTab({appState,updateState,rank,imc,av,onEdit,onLogout,posts,chec
               </div>
             </div>
           ))}
+          {/* PR Records section */}
+          {Object.keys(appState.exercises||{}).some(n=>["Développé couché","Squat","Soulevé de terre","Développé militaire","Rowing barre","Hip thrust","Presse","Tractions"].includes(n))&&(
+            <div style={{marginTop:14}}>
+              <div style={{fontSize:12,fontWeight:800,color:"#FBBF24",marginBottom:8,letterSpacing:".06em"}}>🏆 MES PRs</div>
+              {["Développé couché","Squat","Soulevé de terre","Développé militaire","Rowing barre","Hip thrust","Presse","Tractions"].map(name=>{
+                const history=(appState.exercises||{})[name];
+                if(!history||history.length===0)return null;
+                const pr=history.flatMap(h=>h.sets.map(s=>Number(s.weight)||0)).reduce((a,b)=>Math.max(a,b),0);
+                if(pr===0)return null;
+                return(
+                  <div key={name} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 10px",background:"#0D0D14",borderRadius:8,marginBottom:5,border:"1px solid #1A1A24"}}>
+                    <span style={{fontSize:12,color:"#E0E0E0",fontWeight:600}}>{name}</span>
+                    <span style={{fontSize:14,fontWeight:900,color:"#FBBF24"}}>{pr} kg</span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       )}
 
