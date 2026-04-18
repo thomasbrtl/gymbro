@@ -156,16 +156,24 @@ export default function App() {
     if (!posts) return
 
     const uid = supaSession?.user?.id
-    const { data: myLikes } = uid
-      ? await supabase.from('likes').select('post_id').eq('user_id', uid)
-      : { data: [] }
-    const likedSet = new Set((myLikes || []).map(l => l.post_id))
-
-    // Load all comments for these posts in one query
     const postIds = posts.map(p => p.id)
-    const { data: allComments } = postIds.length
-      ? await supabase.from('comments').select('*').in('post_id', postIds).order('created_at')
-      : { data: [] }
+
+    // Load likes for current user + actual like counts per post
+    const [myLikesRes, allLikesRes, allCommentsRes] = await Promise.all([
+      uid ? supabase.from('likes').select('post_id').eq('user_id', uid) : Promise.resolve({ data: [] }),
+      postIds.length ? supabase.from('likes').select('post_id') : Promise.resolve({ data: [] }),
+      postIds.length ? supabase.from('comments').select('*').in('post_id', postIds).order('created_at') : Promise.resolve({ data: [] }),
+    ])
+
+    const likedSet = new Set((myLikesRes.data || []).map(l => l.post_id))
+
+    // Count likes per post from the likes table (accurate)
+    const likesCount = {}
+    for (const l of (allLikesRes.data || [])) {
+      likesCount[l.post_id] = (likesCount[l.post_id] || 0) + 1
+    }
+
+    const allComments = allCommentsRes
     const commentsByPost = {}
     for (const cm of (allComments || [])) {
       if (!commentsByPost[cm.post_id]) commentsByPost[cm.post_id] = []
@@ -193,7 +201,7 @@ export default function App() {
       isVideo: p.is_video || false,
       imgPos: p.img_pos || 'center',
       ts: new Date(p.created_at).getTime(),
-      likes: Array(p.likes_count || 0).fill('x'),
+      likes: Array(likesCount[p.id] || 0).fill('x'),
       commentsList: commentsByPost[p.id] || [],
       liked: likedSet.has(p.id),
       // Pass profile data for viewing
@@ -298,6 +306,13 @@ export default function App() {
   async function signIn({ email, password }) {
     const { data, error } = await supabase.auth.signInWithPassword({ email, password })
     if (error) throw error
+    // Explicitly load profile so UI transitions immediately
+    if (data.user) {
+      setLocalKey(data.user.id)
+      await loadProfile(data.user.id)
+      await loadFeed()
+      await loadFollows()
+    }
     return data
   }
   async function signOut() { await supabase.auth.signOut() }
@@ -330,7 +345,7 @@ export default function App() {
     const post = feed.find(p => p.id === postId)
     if (!post) return
     const nowLiked = !post.liked
-    // Optimistic update — count from DB later
+    // Optimistic update immediately
     setFeed(f => f.map(p => p.id !== postId ? p : {
       ...p, liked: nowLiked,
       likes: Array(Math.max(0, nowLiked ? (p.likes.length||0)+1 : (p.likes.length||1)-1)).fill('x')
@@ -338,17 +353,18 @@ export default function App() {
     try {
       if (post.liked) {
         await supabase.from('likes').delete().eq('post_id', postId).eq('user_id', uid)
-        // Get real count and update
-        const { count } = await supabase.from('likes').select('*', { count: 'exact', head: true }).eq('post_id', postId)
-        await supabase.from('posts').update({ likes_count: count || 0 }).eq('id', postId)
       } else {
         await supabase.from('likes').insert({ post_id: postId, user_id: uid })
-        const { count } = await supabase.from('likes').select('*', { count: 'exact', head: true }).eq('post_id', postId)
-        await supabase.from('posts').update({ likes_count: count || 1 }).eq('id', postId)
-        if (post.userId !== uid) await supabase.from('notifications').insert({ user_id: post.userId, from_id: uid, type: 'like', post_id: postId }).catch(()=>{})
+        if (post.userId !== uid) {
+          await supabase.from('notifications').insert({ user_id: post.userId, from_id: uid, type: 'like', post_id: postId }).catch(()=>{})
+        }
       }
-    } catch(e) { console.error('toggleLike error:', e) }
-    // Reload to get accurate count for everyone
+    } catch(e) {
+      console.error('toggleLike error:', e)
+      // Revert optimistic update on error
+      setFeed(f => f.map(p => p.id !== postId ? p : { ...p, liked: post.liked, likes: post.likes }))
+    }
+    // Reload for accurate counts (especially for other users)
     await loadFeed()
   }
 

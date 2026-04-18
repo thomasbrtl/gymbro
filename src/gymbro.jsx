@@ -815,13 +815,6 @@ function AppMain({appState,updateState,onLogout,overrides={}}){
         </div>
       )}
 
-      {/* Full profile overlay — rendered inside main container for correct sizing */}
-      {viewProfile&&(
-        <div style={{position:"fixed",inset:0,background:"#0A0A0F",zIndex:300,overflowY:"auto",WebkitOverflowScrolling:"touch",maxWidth:430,left:"50%",transform:"translateX(-50%)"}}>
-          <FullUserProfile post={viewProfile} posts={posts} following={following} toggleFollow={toggleFollow} onClose={()=>setViewProfile(null)} onMessage={(id,p,av,fb)=>{setViewProfile(null);setTab("messages");}} myPseudo={user.pseudo} av={av} userAvatar={user.avatar} myStats={stats} myUser={user} appState={appState}/>
-        </div>
-      )}
-
       {editProfileOpen&&<EditProfileModal user={user} onClose={()=>setEditProfileOpen(false)} onSave={u=>{
         // Update via overrides.updateProfile if available (Supabase mode), else local
         if(overrides.updateProfile){
@@ -833,6 +826,16 @@ function AppMain({appState,updateState,onLogout,overrides={}}){
           }));
         }
       }}/>}
+      {/* Profile overlay — at root level, covers everything including nav */}
+      {viewProfile&&(
+        <div style={{position:"fixed",top:0,left:"50%",transform:"translateX(-50%)",width:"100%",maxWidth:430,height:"100%",background:"#0A0A0F",zIndex:200,overflowY:"auto",WebkitOverflowScrolling:"touch"}}>
+          <FullUserProfile post={viewProfile} posts={posts} following={following} toggleFollow={toggleFollow}
+            onClose={()=>setViewProfile(null)}
+            onMessage={(id,p,av,fb)=>{setViewProfile(null);setTab("messages");}}
+            myPseudo={user.pseudo} av={av} userAvatar={user.avatar}
+            myStats={stats} myUser={user} appState={appState}/>
+        </div>
+      )}
     </div>
   );
 }
@@ -1932,7 +1935,7 @@ function RankedTab({appState,updateState,rank,nextRank,rankPct,stats}){
     const loadUsers=async()=>{
       try{
         const {supabase:sb}=await import('./supabase.js');
-        const {data}=await sb.from('profiles').select('id,pseudo,points,sexe,avatar_url').order('points',{ascending:false}).limit(100);
+        const {data}=await sb.from('profiles').select('id,pseudo,points,sexe,avatar_url,country').order('points',{ascending:false}).limit(100);
         if(data) setAllUsers(data);
       }catch(e){console.error('loadUsers:',e);}
     };
@@ -1945,7 +1948,11 @@ function RankedTab({appState,updateState,rank,nextRank,rankPct,stats}){
     {u:appState.user.pseudo||"toi",pts:stats.points,r:rank,avatarUrl:appState.user.avatar||"",av:appState.user.sexe==="femme"?"👩":"👨",me:true,id:"me"},
     ...allUsers
       .filter(u=>u.pseudo!==appState.user.pseudo)
-      .filter(u=>myCountry==="Monde"||!u.country||u.country===myCountry)
+      .filter(u=>{
+        if(myCountry==="Monde")return true;
+        if(!u.country||u.country==="France"||u.country===myCountry)return myCountry==="France"||u.country===myCountry;
+        return u.country===myCountry;
+      })
       .map(u=>{
         const r2=getRank(u.points||0);
         return {u:u.pseudo||"?",pts:u.points||0,r:r2,avatarUrl:u.avatar_url||"",av:u.sexe==="femme"?"👩":"👨",me:false,id:u.id};
