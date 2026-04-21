@@ -811,14 +811,16 @@ function AppMain({appState,updateState,onLogout,overrides={}}){
           }));
         }
       }}/>}
-      {/* Profile overlay — at root level, covers everything including nav */}
+      {/* Profile overlay — uses viewport units to guarantee full screen */}
       {viewProfile&&(
-        <div style={{position:"fixed",top:0,left:"50%",transform:"translateX(-50%)",width:"100%",maxWidth:430,height:"100%",background:"#0A0A0F",zIndex:200,overflowY:"auto",WebkitOverflowScrolling:"touch"}}>
-          <FullUserProfile post={viewProfile} posts={posts} following={following} toggleFollow={toggleFollow}
-            onClose={()=>setViewProfile(null)}
-            onMessage={(id,p,av,fb)=>{setViewProfile(null);setTab("messages");}}
-            myPseudo={user.pseudo} av={av} userAvatar={user.avatar}
-            myStats={stats} myUser={user} appState={appState}/>
+        <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,width:"100vw",height:"100vh",background:"#0A0A0F",zIndex:999,overflowY:"auto",WebkitOverflowScrolling:"touch"}}>
+          <div style={{maxWidth:430,margin:"0 auto",minHeight:"100%"}}>
+            <FullUserProfile post={viewProfile} posts={posts} following={following} toggleFollow={toggleFollow}
+              onClose={()=>setViewProfile(null)}
+              onMessage={(id,p,av,fb)=>{setViewProfile(null);setTab("messages");}}
+              myPseudo={user.pseudo} av={av} userAvatar={user.avatar}
+              myStats={stats} myUser={user} appState={appState}/>
+          </div>
         </div>
       )}
     </div>

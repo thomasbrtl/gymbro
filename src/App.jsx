@@ -163,7 +163,7 @@ export default function App() {
 
     setFeed(posts.map(p => ({
       id: p.id,
-      userId: p.user_id,
+      userId: (supaSession?.user?.id && p.user_id === supaSession.user.id) ? 'me' : p.user_id,
       pseudo: p.pseudo || p.profiles?.pseudo || '?',
       avatarVal: p.profiles?.avatar_url || '',
       avatarFallback: p.profiles?.sexe === 'femme' ? '👩' : '👨',
