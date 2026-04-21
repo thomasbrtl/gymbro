@@ -563,6 +563,7 @@ function SupabaseSignup({ onOk, goBack }) {
 function AppMain({appState,updateState,onLogout,overrides={}}){
   const [tab,setTab]=useState("feed");
   const [viewProfile,setViewProfile]=useState(null);
+  const [viewPostGlobal,setViewPostGlobal]=useState(null);
   const [showNotifs,setShowNotifs]=useState(false);
   const [editProfileOpen,setEditProfileOpen]=useState(false);
   const [toasts,setToasts]=useState([]);
@@ -825,10 +826,20 @@ function AppMain({appState,updateState,onLogout,overrides={}}){
               onClose={()=>setViewProfile(null)}
               onMessage={(id,p,av,fb)=>{setViewProfile(null);setTab("messages");}}
               myPseudo={user.pseudo} av={av} userAvatar={user.avatar}
-              myStats={stats} myUser={user} appState={appState}/>
+              myStats={stats} myUser={user} appState={appState}
+              onOpenPost={(p)=>setViewPostGlobal(p)}/>
           </div>
         </div>
       )}
+      {/* Global PostViewModal — outside any overflow container */}
+      {viewPostGlobal&&<PostViewModal
+        post={viewPostGlobal}
+        onClose={()=>setViewPostGlobal(null)}
+        toggleLike={()=>{if(overrides.toggleLike)overrides.toggleLike(viewPostGlobal.id);setViewPostGlobal(p=>p?{...p,liked:!p.liked,likes:!p.liked?[...p.likes,"x"]:p.likes.slice(1)}:null);}}
+        addComment={addComment}
+        myPseudo={user.pseudo} myAvatarVal={user.avatar||""} av={av}
+        onDelete={overrides.deletePost?(postId)=>{updateState(s=>({posts:s.posts.filter(p=>p.id!==postId)}));overrides.deletePost(postId);}:null}
+      />}
     </div>
   );
 }
@@ -1027,7 +1038,7 @@ function CreatePostModal({onClose,onSubmit}){
 }
 
 // ══════════════════════ FULL USER PROFILE ══
-function FullUserProfile({post,posts,following,toggleFollow,onClose,onMessage,myPseudo,av,userAvatar,myStats,myUser,appState}){
+function FullUserProfile({post,posts,following,toggleFollow,onClose,onMessage,myPseudo,av,userAvatar,myStats,myUser,appState,onOpenPost}){
   const isMe=post.userId==="me"||post.pseudo===myPseudo;
   // Define userPosts FIRST so it can be used in displayStats
   const userPosts=posts.filter(p=>p.pseudo===post.pseudo&&p.mediaUrl);
@@ -1095,7 +1106,7 @@ function FullUserProfile({post,posts,following,toggleFollow,onClose,onMessage,my
           ?<div style={{textAlign:"center",padding:"24px 0",color:"#444",fontSize:13}}>Aucun post.</div>
           :<div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:3}}>
             {userPosts.map(p=>(
-              <div key={p.id} onClick={()=>setViewPost(p)} style={{aspectRatio:"1",borderRadius:4,overflow:"hidden",background:"#13131A",cursor:"pointer",position:"relative"}}>
+              <div key={p.id} onClick={()=>onOpenPost?onOpenPost(p):setViewPost(p)} style={{aspectRatio:"1",borderRadius:4,overflow:"hidden",background:"#13131A",cursor:"pointer",position:"relative"}}>
                 {p.isVideo?<video src={p.mediaUrl} style={{width:"100%",height:"100%",objectFit:"cover"}}/>:<img src={p.mediaUrl} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/>}
                 {p.isVideo&&<div style={{position:"absolute",top:4,right:4,fontSize:10,color:"#FFF",background:"rgba(0,0,0,.5)",borderRadius:3,padding:"1px 4px"}}>▶</div>}
               </div>
@@ -1137,12 +1148,7 @@ function FullUserProfile({post,posts,following,toggleFollow,onClose,onMessage,my
             );
           })}
         </div>}
-      {viewPost&&<PostViewModal
-        post={viewPost}
-        onClose={()=>setViewPost(null)}
-        toggleLike={()=>{toggleLike(viewPost.id);setViewPost(p=>p?{...p,liked:!p.liked,likes:!p.liked?[...p.likes,"x"]:p.likes.slice(1)}:null);}}
-        addComment={addComment||function(){}}
-        myPseudo={myPseudo} myAvatarVal={userAvatar||""} av={av}/>}
+
       </div>
     </div>
   );
@@ -2230,7 +2236,7 @@ function ProfileTab({appState,updateState,rank,imc,av,onEdit,onLogout,posts,chec
           {mediaPosts.length>0&&(
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:3,marginBottom:mediaPosts.length>0&&textPosts.length>0?14:0}}>
               {mediaPosts.map(p=>(
-                <div key={p.id} onClick={()=>setViewPost(p)} style={{aspectRatio:"1",borderRadius:4,overflow:"hidden",background:"#13131A",cursor:"pointer",position:"relative"}}>
+                <div key={p.id} onClick={()=>onOpenPost?onOpenPost(p):setViewPost(p)} style={{aspectRatio:"1",borderRadius:4,overflow:"hidden",background:"#13131A",cursor:"pointer",position:"relative"}}>
                   {p.isVideo?<video src={p.mediaUrl} style={{width:"100%",height:"100%",objectFit:"cover"}}/>:<img src={p.mediaUrl} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/>}
                   {p.isVideo&&<div style={{position:"absolute",top:4,right:4,fontSize:10,color:"#FFF",background:"rgba(0,0,0,.5)",borderRadius:3,padding:"1px 4px"}}>▶</div>}
                 </div>
@@ -2242,10 +2248,11 @@ function ProfileTab({appState,updateState,rank,imc,av,onEdit,onLogout,posts,chec
             <>
               {mediaPosts.length>0&&<div style={{fontSize:11,fontWeight:700,color:"#555",marginBottom:8,letterSpacing:".04em"}}>POSTS TEXTE</div>}
               {textPosts.map(p=>(
-                <div key={p.id} style={{background:"#0D0D14",borderRadius:10,padding:"10px 12px",marginBottom:7,border:"1px solid #1A1A24"}}>
-                  <p style={{margin:0,fontSize:13,color:"#CCC",lineHeight:1.4,fontFamily:"'Barlow',sans-serif"}}>{p.caption}</p>
+                <div key={p.id} style={{background:"#0D0D14",borderRadius:10,padding:"10px 12px",marginBottom:7,border:"1px solid #1A1A24",position:"relative"}}>
+                  <p style={{margin:0,fontSize:13,color:"#CCC",lineHeight:1.4,fontFamily:"'Barlow',sans-serif",paddingRight:28}}>{p.caption}</p>
                   {p.tags?.length>0&&<div style={{color:"#FF3D3D",fontSize:11,marginTop:5}}>{p.tags.map(t=>`#${t}`).join(" ")}</div>}
                   <div style={{color:"#444",fontSize:10,marginTop:5}}>{timeSince(p.ts)} · {p.likes.length} ❤️ · {(p.commentsList||[]).length} 💬</div>
+                  {deletePost&&<button onClick={()=>{if(window.confirm("Supprimer ce post ?")){{updateState(s=>({posts:s.posts.filter(q=>q.id!==p.id)}));deletePost(p.id);}}} } style={{position:"absolute",top:8,right:8,background:"none",border:"none",color:"#555",fontSize:14,cursor:"pointer",lineHeight:1}}>🗑</button>}
                 </div>
               ))}
             </>
