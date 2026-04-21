@@ -458,6 +458,12 @@ function SupabaseBridge({ callbacks, externalAppState, isAuthenticated, external
           sendMessage,
           saveSession: wrappedSaveSession,
           updateProfile,
+          deletePost: async (postId)=>{
+            try{
+              const {supabase:sb}=await import('./supabase.js');
+              await sb.from('posts').delete().eq('id',postId);
+            }catch(e){console.error('deletePost:',e);}
+          },
         }}
       /></>
     );
@@ -761,7 +767,7 @@ function AppMain({appState,updateState,onLogout,overrides={}}){
         {tab==="program"  && <ProgramTab appState={appState} updateState={updateState} saveSession={saveSession}/>}
         {tab==="trophies" && <TrophiesTab stats={stats} user={user} updateState={updateState}/>}
         {tab==="ranked"   && <RankedTab appState={{...appState,_openProfile:(p)=>setViewProfile(p)}} updateState={updateState} rank={rank} nextRank={nextRank} rankPct={rankPct} stats={stats}/>}
-        {tab==="profile"  && <ProfileTab appState={appState} updateState={updateState} rank={rank} imc={imc} av={av} onEdit={()=>setEditProfileOpen(true)} onLogout={onLogout} posts={posts} checkTrophies={checkTrophies}/>}
+        {tab==="profile"  && <ProfileTab appState={appState} updateState={updateState} rank={rank} imc={imc} av={av} onEdit={()=>setEditProfileOpen(true)} onLogout={onLogout} posts={posts} checkTrophies={checkTrophies} deletePost={overrides.deletePost}/>}
       </div>
 
       {/* Nav */}
@@ -839,7 +845,7 @@ function FeedTab({appState,updateState,addPost,onOpenProfile,toggleLike,addComme
   const commentRef=useRef(null);
 
   const filtered=posts.filter(p=>{
-    if(feedTab==="following"&&p.userId!=="me"&&!following.includes(p.userId))return false;
+    if(feedTab==="following"&&(p.userId==="me"||!following.includes(p.userId)))return false;
     if(search){const q=search.toLowerCase();if(!p.caption?.toLowerCase().includes(q)&&!p.pseudo?.toLowerCase().includes(q)&&!(p.tags||[]).some(t=>t.toLowerCase().includes(q)))return false;}
     if(rankFilter!=="all"){const tier=(p.rankTier||(p.rankName||"").split(" ")[0].toLowerCase()||"silver");if(tier!==rankFilter)return false;}
     return true;
@@ -1131,8 +1137,11 @@ function FullUserProfile({post,posts,following,toggleFollow,onClose,onMessage,my
             );
           })}
         </div>}
-      {viewPost&&<PostViewModal post={viewPost} onClose={()=>setViewPost(null)}
-        toggleLike={()=>{}} addComment={()=>{}}
+      {viewPost&&<PostViewModal
+        post={viewPost}
+        onClose={()=>setViewPost(null)}
+        toggleLike={()=>{toggleLike(viewPost.id);setViewPost(p=>p?{...p,liked:!p.liked,likes:!p.liked?[...p.likes,"x"]:p.likes.slice(1)}:null);}}
+        addComment={addComment||function(){}}
         myPseudo={myPseudo} myAvatarVal={userAvatar||""} av={av}/>}
       </div>
     </div>
@@ -2052,9 +2061,11 @@ function RankedTab({appState,updateState,rank,nextRank,rankPct,stats}){
 }
 
 // ══════════════════════ POST VIEW MODAL ══
-function PostViewModal({post,onClose,toggleLike,addComment,myPseudo,myAvatarVal,av}){
+function PostViewModal({post,onClose,toggleLike,addComment,myPseudo,myAvatarVal,av,onDelete}){
   const [commentText,setCommentText]=useState("");
+  const [confirmDelete,setConfirmDelete]=useState(false);
   const rank=getRank(post.points||0);
+  const isOwnPost=post.userId==="me";
   const submitComment=()=>{
     if(!commentText.trim())return;
     addComment(post.id,commentText.trim());
@@ -2071,7 +2082,17 @@ function PostViewModal({post,onClose,toggleLike,addComment,myPseudo,myAvatarVal,
               <span className="rb" style={{background:(post.rankColor||"#444")+"22",color:post.rankColor||"#888",fontSize:9}}>{post.rankIcon} {post.rankName}</span>
             </div>
           </div>
-          <button onClick={onClose} style={{background:"none",border:"none",color:"#666",fontSize:22,cursor:"pointer",lineHeight:1}}>✕</button>
+          <div style={{display:"flex",alignItems:"center",gap:8}}>
+            {isOwnPost&&onDelete&&(
+              !confirmDelete
+                ?<button onClick={()=>setConfirmDelete(true)} style={{background:"none",border:"none",color:"#666",fontSize:18,cursor:"pointer",lineHeight:1}}>🗑</button>
+                :<div style={{display:"flex",gap:6}}>
+                  <button onClick={()=>{onDelete(post.id);onClose();}} style={{background:"#FF3D3D",border:"none",color:"#FFF",borderRadius:7,padding:"4px 10px",fontSize:11,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>Supprimer</button>
+                  <button onClick={()=>setConfirmDelete(false)} style={{background:"#2A2A3A",border:"none",color:"#AAA",borderRadius:7,padding:"4px 10px",fontSize:11,cursor:"pointer",fontFamily:"inherit"}}>Annuler</button>
+                </div>
+            )}
+            <button onClick={onClose} style={{background:"none",border:"none",color:"#666",fontSize:22,cursor:"pointer",lineHeight:1}}>✕</button>
+          </div>
         </div>
 
         {/* Media */}
@@ -2132,7 +2153,7 @@ function PostViewModal({post,onClose,toggleLike,addComment,myPseudo,myAvatarVal,
 
 
 // ══════════════════════ PROFILE ══
-function ProfileTab({appState,updateState,rank,imc,av,onEdit,onLogout,posts,checkTrophies}){
+function ProfileTab({appState,updateState,rank,imc,av,onEdit,onLogout,posts,checkTrophies,deletePost}){
   const {user,stats,following=[]}=appState;
   const [profTab,setProfTab]=useState("posts");
   const [showPinModal,setShowPinModal]=useState(false);
@@ -2305,6 +2326,10 @@ function ProfileTab({appState,updateState,rank,imc,av,onEdit,onLogout,posts,chec
       {viewPost&&<PostViewModal post={viewPost} onClose={()=>setViewPost(null)}
         toggleLike={()=>updateState(s=>({posts:s.posts.map(p=>p.id!==viewPost.id?p:{...p,liked:!p.liked,likes:!p.liked?[...p.likes,"me"]:p.likes.filter(x=>x!=="me")})}))}
         addComment={(postId,text)=>updateState(s=>({posts:s.posts.map(p=>p.id!==postId?p:{...p,commentsList:[...(p.commentsList||[]),{id:genId(),pseudo:s.user.pseudo,avatarVal:s.user.avatar||"",avatarFallback:av,text,ts:Date.now()}]})}))}
+        onDelete={(postId)=>{
+          updateState(s=>({posts:s.posts.filter(p=>p.id!==postId),stats:{...s.stats,posts:Math.max(0,(s.stats.posts||1)-1)}}));
+          if(deletePost)deletePost(postId);
+        }}
         myPseudo={user.pseudo} myAvatarVal={user.avatar||""} av={av}/>}
 
       {/* Pinned trophy detail — CENTERED with remove option */}
