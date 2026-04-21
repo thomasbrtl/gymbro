@@ -831,7 +831,7 @@ function AppMain({appState,updateState,onLogout,overrides={}}){
           </div>
         </div>
       )}
-      {/* Global PostViewModal — outside any overflow container */}
+      {/* Global PostViewModal — zIndex:1100 above profile overlay (999) */}
       {viewPostGlobal&&<PostViewModal
         post={viewPostGlobal}
         onClose={()=>setViewPostGlobal(null)}
@@ -839,6 +839,7 @@ function AppMain({appState,updateState,onLogout,overrides={}}){
         addComment={addComment}
         myPseudo={user.pseudo} myAvatarVal={user.avatar||""} av={av}
         onDelete={overrides.deletePost?(postId)=>{updateState(s=>({posts:s.posts.filter(p=>p.id!==postId)}));overrides.deletePost(postId);}:null}
+        zIndex={1100}
       />}
     </div>
   );
@@ -2067,7 +2068,7 @@ function RankedTab({appState,updateState,rank,nextRank,rankPct,stats}){
 }
 
 // ══════════════════════ POST VIEW MODAL ══
-function PostViewModal({post,onClose,toggleLike,addComment,myPseudo,myAvatarVal,av,onDelete}){
+function PostViewModal({post,onClose,toggleLike,addComment,myPseudo,myAvatarVal,av,onDelete,zIndex}){
   const [commentText,setCommentText]=useState("");
   const [confirmDelete,setConfirmDelete]=useState(false);
   const rank=getRank(post.points||0);
@@ -2078,7 +2079,7 @@ function PostViewModal({post,onClose,toggleLike,addComment,myPseudo,myAvatarVal,
     setCommentText("");
   };
   return(
-    <div className="modal-bg" onClick={onClose} style={{alignItems:"flex-start"}}>
+    <div className="modal-bg" onClick={onClose} style={{alignItems:"flex-start",zIndex:zIndex||400}}>
       <div onClick={e=>e.stopPropagation()} style={{background:"#0F0F18",width:"100%",maxWidth:430,maxHeight:"96vh",overflow:"auto",borderRadius:"20px 20px 0 0",animation:"slideUp .3s ease",paddingBottom:24}}>
         <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"14px 16px",borderBottom:"1px solid #1A1A24"}}>
           <div style={{display:"flex",alignItems:"center",gap:10}}>
