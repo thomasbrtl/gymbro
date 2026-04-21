@@ -768,7 +768,7 @@ function AppMain({appState,updateState,onLogout,overrides={}}){
         {tab==="program"  && <ProgramTab appState={appState} updateState={updateState} saveSession={saveSession}/>}
         {tab==="trophies" && <TrophiesTab stats={stats} user={user} updateState={updateState}/>}
         {tab==="ranked"   && <RankedTab appState={{...appState,_openProfile:(p)=>setViewProfile(p)}} updateState={updateState} rank={rank} nextRank={nextRank} rankPct={rankPct} stats={stats}/>}
-        {tab==="profile"  && <ProfileTab appState={appState} updateState={updateState} rank={rank} imc={imc} av={av} onEdit={()=>setEditProfileOpen(true)} onLogout={onLogout} posts={posts} checkTrophies={checkTrophies} deletePost={overrides.deletePost}/>}
+        {tab==="profile"  && <ProfileTab appState={appState} updateState={updateState} rank={rank} imc={imc} av={av} onEdit={()=>setEditProfileOpen(true)} onLogout={onLogout} posts={posts} checkTrophies={checkTrophies} deletePost={overrides.deletePost} onOpenPost={(p)=>setViewPostGlobal(p)}/>}
       </div>
 
       {/* Nav */}
@@ -1932,10 +1932,108 @@ function TrophiesTab({stats,user,updateState}){
 }
 
 // ══════════════════════ RANKED ══
-function RankedTab({appState,updateState,rank,nextRank,rankPct,stats}){
+// ══════════════════════ WEEKLY CHALLENGES ══
+const ALL_CHALLENGES = [
+  {id:"wc_sess3",  icon:"🏋️", title:"Machine de guerre",    desc:"Complète 3 séances cette semaine",  xp:200, type:"sessions",   target:3},
+  {id:"wc_sess5",  icon:"🔥", title:"Semaine de feu",        desc:"Complète 5 séances cette semaine",  xp:400, type:"sessions",   target:5},
+  {id:"wc_early",  icon:"🌅", title:"Lève-tôt",              desc:"1 séance avant 7h cette semaine",   xp:150, type:"early",      target:1},
+  {id:"wc_pr",     icon:"💪", title:"Nouveau record",        desc:"Bats 1 PR sur un grand exercice",   xp:250, type:"prs",        target:1},
+  {id:"wc_post2",  icon:"📸", title:"Créateur de contenu",   desc:"Publie 2 posts cette semaine",      xp:150, type:"posts",      target:2},
+  {id:"wc_post5",  icon:"🎥", title:"Influenceur",           desc:"Publie 5 posts cette semaine",      xp:300, type:"posts",      target:5},
+  {id:"wc_vol",    icon:"🏆", title:"Semaine intense",       desc:"Complète 4 séances cette semaine",  xp:350, type:"sessions",   target:4},
+  {id:"wc_streak", icon:"⚡", title:"Sans faille",           desc:"Aucun jour sans séance (5j)",       xp:500, type:"streak_week",target:5},
+  {id:"wc_night",  icon:"🌙", title:"Hibou de nuit",         desc:"1 séance après 22h cette semaine",  xp:150, type:"night",      target:1},
+  {id:"wc_like10", icon:"❤️", title:"Populaire",             desc:"Reçois 10 likes sur tes posts",     xp:200, type:"likes",      target:10},
+  {id:"wc_follow", icon:"👥", title:"Réseau",                desc:"Suis 3 nouvelles personnes",        xp:100, type:"follows",    target:3},
+  {id:"wc_sess2",  icon:"💎", title:"Démarrage solide",      desc:"Complète 2 séances cette semaine",  xp:100, type:"sessions",   target:2},
+  {id:"wc_pr3",    icon:"🚀", title:"Semaine de records",    desc:"Bats 3 PRs cette semaine",          xp:500, type:"prs",        target:3},
+  {id:"wc_comment",icon:"💬", title:"Coach",                 desc:"Commente 5 posts cette semaine",    xp:100, type:"comments",   target:5},
+  {id:"wc_morn3",  icon:"☀️", title:"Guerrier de l'aube",   desc:"3 séances avant 7h cette semaine",  xp:400, type:"early",      target:3},
+];
+
+// Get this week's 5 challenges — deterministic based on ISO week number
+function getWeekChallenges() {
+  const now = new Date();
+  const startOfYear = new Date(now.getFullYear(), 0, 1);
+  const weekNum = Math.floor((now - startOfYear) / (7 * 24 * 3600 * 1000));
+  // Seed selection: pick 5 different challenges based on week
+  const selected = [];
+  const pool = [...ALL_CHALLENGES];
+  let seed = weekNum * 31337;
+  for (let i = 0; i < 5; i++) {
+    seed = (seed * 1664525 + 1013904223) & 0x7fffffff;
+    const idx = seed % pool.length;
+    selected.push(pool[idx]);
+    pool.splice(idx, 1);
+  }
+  return selected;
+}
+
+// Get start of current week (Monday)
+function getWeekStart() {
+  const now = new Date();
+  const day = now.getDay();
+  const diff = (day === 0 ? -6 : 1) - day;
+  const mon = new Date(now);
+  mon.setDate(now.getDate() + diff);
+  mon.setHours(0,0,0,0);
+  return mon.getTime();
+}
+
+function getWeekKey() {
+  const d = new Date();
+  const jan1 = new Date(d.getFullYear(), 0, 1);
+  return `week_${d.getFullYear()}_${Math.floor((d - jan1)/(7*24*3600*1000))}`;
+}
+
+
+function RankedTab({appState,updateState,rank,nextRank,rankPct,stats,giveXP}){
   const {country="France"}=appState;
   const [showCountry,setShowCountry]=useState(false);
   const [showRankPath,setShowRankPath]=useState(false);
+
+  // Weekly challenges
+  const weekChallenges = getWeekChallenges();
+  const weekKey = getWeekKey();
+  const weekStart = getWeekStart();
+  // Load completed challenges from local storage
+  const [weekData,setWeekData]=useState(()=>{
+    try{ return JSON.parse(localStorage.getItem('gymbro_weekly')||'{}'); }catch{return {};}
+  });
+  const saveWeekData=(d)=>{
+    const next={...weekData,...d};
+    setWeekData(next);
+    try{localStorage.setItem('gymbro_weekly',JSON.stringify(next));}catch{}
+  };
+  const completedIds = weekData[weekKey+'_done'] || [];
+  const markDone=(id,xpAmount)=>{
+    if(completedIds.includes(id))return;
+    const newDone=[...completedIds,id];
+    saveWeekData({[weekKey+'_done']:newDone});
+    // Give XP via parent callback
+    if(updateState){
+      updateState(s=>({stats:{...s.stats,points:(s.stats.points||0)+xpAmount}}));
+    }
+  };
+
+  // Compute weekly progress from stats + session history
+  const weekSessions=(appState.sessionHistory||[]).filter(h=>h.date>=weekStart).length;
+  const weekEarly=(appState.sessionHistory||[]).filter(h=>h.date>=weekStart&&new Date(h.date).getHours()<7).length;
+  const weekNight=(appState.sessionHistory||[]).filter(h=>h.date>=weekStart&&new Date(h.date).getHours()>=22).length;
+  const weekPosts=(appState.posts||[]).filter(p=>p.userId==="me"&&p.ts>=weekStart).length;
+  const weekPRs=0; // PRs are tracked in stats but not per-week — approximate
+
+  function getChallengeProgress(ch){
+    switch(ch.type){
+      case 'sessions':   return weekSessions;
+      case 'early':      return weekEarly;
+      case 'night':      return weekNight;
+      case 'posts':      return weekPosts;
+      case 'prs':        return weekPRs;
+      case 'streak_week':return Math.min(weekSessions,ch.target);
+      default: return 0;
+    }
+  }
 
   const [allUsers,setAllUsers]=useState([]);
   const {onOpenProfile}=appState._callbacks||{};
@@ -1976,6 +2074,53 @@ function RankedTab({appState,updateState,rank,nextRank,rankPct,stats}){
         <div style={{fontSize:36,fontWeight:900,color:rank.color,lineHeight:1}}>{rank.icon} {rank.name.toUpperCase()}</div>
         <div style={{color:"#666",fontSize:12,marginTop:4,fontFamily:"'Barlow',sans-serif"}}>{stats.points.toLocaleString()} XP</div>
         {nextRank&&<div style={{marginTop:12}}><div style={{display:"flex",justifyContent:"space-between",fontSize:10,marginBottom:4}}><span style={{color:"#555"}}>{rank.name}</span><span style={{color:nextRank.color,fontWeight:700}}>{nextRank.name} — {(nextRank.min-stats.points).toLocaleString()} XP</span></div><div style={{height:4,background:"#1A1A24",borderRadius:3,overflow:"hidden"}}><div style={{height:"100%",width:`${rankPct}%`,background:`linear-gradient(90deg,${rank.color},${nextRank.color})`,borderRadius:3}}/></div></div>}
+      </div>
+
+      {/* ══ WEEKLY CHALLENGES ══ */}
+      <div style={{marginBottom:20}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+          <div>
+            <div style={{fontSize:14,fontWeight:900}}>⚡ DÉFIS DE LA SEMAINE</div>
+            <div style={{fontSize:10,color:"#555",marginTop:2,fontFamily:"'Barlow',sans-serif"}}>Se renouvellent chaque lundi</div>
+          </div>
+          <div style={{background:"#1A1A24",borderRadius:8,padding:"4px 10px",fontSize:11,fontWeight:700,color:"#888"}}>{completedIds.length}/5</div>
+        </div>
+        {weekChallenges.map(ch=>{
+          const done=completedIds.includes(ch.id);
+          const progress=getChallengeProgress(ch);
+          const pct=Math.min((progress/ch.target)*100,100);
+          const canClaim=progress>=ch.target&&!done;
+          return(
+            <div key={ch.id} style={{background:done?"#0D1F0D":canClaim?"#1A1A0A":"#0D0D14",border:`1px solid ${done?"#22C55E44":canClaim?"#FBBF2444":"#1A1A24"}`,borderRadius:12,padding:"12px 14px",marginBottom:8,transition:"all .2s"}}>
+              <div style={{display:"flex",alignItems:"center",gap:10}}>
+                <div style={{width:38,height:38,borderRadius:10,background:done?"#22C55E22":canClaim?"#FBBF2422":"#1A1A24",display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,flexShrink:0}}>
+                  {done?"✅":ch.icon}
+                </div>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontWeight:800,fontSize:13,color:done?"#22C55E":canClaim?"#FBBF24":"#F0F0F0"}}>{ch.title}</div>
+                  <div style={{color:"#555",fontSize:11,fontFamily:"'Barlow',sans-serif",marginTop:1}}>{ch.desc}</div>
+                  {!done&&(
+                    <div style={{marginTop:6}}>
+                      <div style={{height:3,background:"#1A1A24",borderRadius:2,overflow:"hidden"}}>
+                        <div style={{height:"100%",width:pct+"%",background:canClaim?"#FBBF24":"#FF3D3D",borderRadius:2,transition:"width .5s"}}/>
+                      </div>
+                      <div style={{fontSize:9,color:"#444",marginTop:2}}>{progress}/{ch.target}</div>
+                    </div>
+                  )}
+                </div>
+                <div style={{textAlign:"right",flexShrink:0}}>
+                  <div style={{fontSize:11,fontWeight:800,color:done?"#22C55E":canClaim?"#FBBF24":"#555"}}>+{ch.xp} XP</div>
+                  {canClaim&&(
+                    <button onClick={()=>markDone(ch.id,ch.xp)} style={{marginTop:5,background:"linear-gradient(135deg,#FBBF24,#F59E0B)",border:"none",color:"#000",borderRadius:7,padding:"5px 10px",fontSize:10,fontWeight:900,cursor:"pointer",fontFamily:"inherit"}}>
+                      RÉCLAMER
+                    </button>
+                  )}
+                  {done&&<div style={{fontSize:10,color:"#22C55E",fontWeight:700,marginTop:2}}>Obtenu ✓</div>}
+                </div>
+              </div>
+            </div>
+          );
+        })}
       </div>
 
       <div style={{marginBottom:16}}>
@@ -2160,7 +2305,7 @@ function PostViewModal({post,onClose,toggleLike,addComment,myPseudo,myAvatarVal,
 
 
 // ══════════════════════ PROFILE ══
-function ProfileTab({appState,updateState,rank,imc,av,onEdit,onLogout,posts,checkTrophies,deletePost}){
+function ProfileTab({appState,updateState,rank,imc,av,onEdit,onLogout,posts,checkTrophies,deletePost,onOpenPost}){
   const {user,stats,following=[]}=appState;
   const [profTab,setProfTab]=useState("posts");
   const [showPinModal,setShowPinModal]=useState(false);
@@ -2331,14 +2476,7 @@ function ProfileTab({appState,updateState,rank,imc,av,onEdit,onLogout,posts,chec
       )}
 
       {/* Post viewer modal */}
-      {viewPost&&<PostViewModal post={viewPost} onClose={()=>setViewPost(null)}
-        toggleLike={()=>updateState(s=>({posts:s.posts.map(p=>p.id!==viewPost.id?p:{...p,liked:!p.liked,likes:!p.liked?[...p.likes,"me"]:p.likes.filter(x=>x!=="me")})}))}
-        addComment={(postId,text)=>updateState(s=>({posts:s.posts.map(p=>p.id!==postId?p:{...p,commentsList:[...(p.commentsList||[]),{id:genId(),pseudo:s.user.pseudo,avatarVal:s.user.avatar||"",avatarFallback:av,text,ts:Date.now()}]})}))}
-        onDelete={(postId)=>{
-          updateState(s=>({posts:s.posts.filter(p=>p.id!==postId),stats:{...s.stats,posts:Math.max(0,(s.stats.posts||1)-1)}}));
-          if(deletePost)deletePost(postId);
-        }}
-        myPseudo={user.pseudo} myAvatarVal={user.avatar||""} av={av}/>}
+
 
       {/* Pinned trophy detail — CENTERED with remove option */}
       {selPinnedTrophy&&(
