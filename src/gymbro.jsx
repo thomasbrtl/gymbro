@@ -1503,17 +1503,21 @@ function MessagesTab({conversations,user,av,updateState,appState,overrides,onOpe
       {/* MODAL LANCER UN DÉFI */}
       {showDefiModal&&(
         <div className="modal-bg" onClick={()=>{setShowDefiModal(null);setSelPreset(null);}}>
-          <div className="modal-sheet" onClick={e=>e.stopPropagation()}>
-            <div className="modal-handle"/>
-            <div style={{padding:"0 16px 24px"}}>
-              <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:16}}>
+          <div className="modal-sheet" onClick={e=>e.stopPropagation()} style={{display:"flex",flexDirection:"column",maxHeight:"88vh"}}>
+            <div className="modal-handle" style={{flexShrink:0}}/>
+            {/* Header — fixe */}
+            <div style={{padding:"0 16px 12px",flexShrink:0}}>
+              <div style={{display:"flex",alignItems:"center",gap:10}}>
                 <Avatar val={showDefiModal.avatarVal||""} fallback={showDefiModal.avatarFb||"👤"} size={40} border="#2A2A3A"/>
                 <div>
                   <div style={{fontSize:11,color:"#555",fontFamily:"'Barlow',sans-serif"}}>Défier</div>
                   <div style={{fontWeight:900,fontSize:18}}>@{showDefiModal.pseudo}</div>
                 </div>
               </div>
-              <div style={{fontSize:11,fontWeight:800,color:"#555",letterSpacing:".08em",marginBottom:10,textTransform:"uppercase"}}>Choisir un défi</div>
+              <div style={{fontSize:11,fontWeight:800,color:"#555",letterSpacing:".08em",marginTop:14,marginBottom:2,textTransform:"uppercase"}}>Choisir un défi</div>
+            </div>
+            {/* Liste scrollable */}
+            <div className="sa" style={{flex:1,overflowY:"auto",padding:"0 16px",minHeight:0}}>
               {DEFI_PRESETS.map(p=>(
                 <div key={p.id} onClick={()=>setSelPreset(selPreset?.id===p.id?null:p)}
                   style={{display:"flex",alignItems:"center",gap:12,padding:"11px 12px",background:selPreset?.id===p.id?"#FF3D3D14":"#0D0D14",border:`1.5px solid ${selPreset?.id===p.id?"#FF3D3D":"#1A1A24"}`,borderRadius:11,marginBottom:7,cursor:"pointer",transition:"all .15s"}}>
@@ -1526,8 +1530,12 @@ function MessagesTab({conversations,user,av,updateState,appState,overrides,onOpe
                   {selPreset?.id===p.id&&<div style={{color:"#FF3D3D",fontSize:16,flexShrink:0}}>✓</div>}
                 </div>
               ))}
+              <div style={{height:8}}/>
+            </div>
+            {/* Bouton LANCER — toujours visible en bas */}
+            <div style={{padding:"12px 16px",paddingBottom:"max(16px,env(safe-area-inset-bottom,16px))",borderTop:"1px solid #1A1A24",flexShrink:0,background:"#0F0F18"}}>
               <button onClick={launchDefi} disabled={!selPreset}
-                style={{width:"100%",padding:"14px",marginTop:10,background:selPreset?"linear-gradient(135deg,#FF3D3D,#CC2020)":"#1A1A24",border:"none",color:selPreset?"#FFF":"#444",borderRadius:12,fontFamily:"'Barlow Condensed',sans-serif",fontSize:16,fontWeight:900,cursor:selPreset?"pointer":"not-allowed",letterSpacing:".06em",transition:"all .2s"}}>
+                style={{width:"100%",padding:"14px",background:selPreset?"linear-gradient(135deg,#FF3D3D,#CC2020)":"#1A1A24",border:"none",color:selPreset?"#FFF":"#444",borderRadius:12,fontFamily:"'Barlow Condensed',sans-serif",fontSize:16,fontWeight:900,cursor:selPreset?"pointer":"not-allowed",letterSpacing:".06em",transition:"all .2s"}}>
                 {selPreset?`⚡ LANCER — ${selPreset.durationDays} JOURS`:"Sélectionne un défi"}
               </button>
             </div>

@@ -48,6 +48,43 @@ function writeLocal(patch) {
   const cur = readLocal()
   const next = { ...cur, ...patch }
   localStorage.setItem(_localKey, JSON.stringify(next))
+
+// ── Push notifications ──
+const VAPID_PUBLIC_KEY = import.meta.env.VITE_VAPID_PUBLIC_KEY || ''
+
+function urlBase64ToUint8Array(base64String) {
+  const padding = '='.repeat((4 - base64String.length % 4) % 4)
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/')
+  const rawData = atob(base64)
+  return new Uint8Array([...rawData].map(c => c.charCodeAt(0)))
+}
+
+async function registerPush(userId) {
+  if (!('serviceWorker' in navigator) || !('PushManager' in window) || !VAPID_PUBLIC_KEY) return
+  try {
+    const reg = await navigator.serviceWorker.register('/sw.js')
+    await navigator.serviceWorker.ready
+    const permission = await Notification.requestPermission()
+    if (permission !== 'granted') return
+    const existing = await reg.pushManager.getSubscription()
+    const sub = existing || await reg.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY),
+    })
+    await supabase.from('push_subscriptions').upsert({
+      user_id: userId,
+      subscription: sub.toJSON(),
+      updated_at: new Date().toISOString(),
+    }, { onConflict: 'user_id,endpoint' })
+  } catch (e) { console.warn('Push registration failed:', e) }
+}
+
+async function sendPushTo(userId, title, body, tag) {
+  if (!userId) return
+  try {
+    await supabase.functions.invoke('send-push', { body: { userId, title, body, tag } })
+  } catch (e) { console.warn('sendPush failed:', e) }
+}
   return next
 }
 
@@ -107,6 +144,7 @@ export default function App() {
         const saved = readLocal()
         setLocalData(saved)
         loadProfile(session.user.id).then(() => setAuthLoading(false))
+        registerPush(session.user.id)
       } else {
         setAuthLoading(false)
       }
@@ -289,6 +327,7 @@ export default function App() {
     await supabase.from('profiles').upsert({ id: uid, email, pseudo, sexe, age: +age||0, poids: +poids||0, taille: +taille||0, country: country||'France', points: 0, sessions: 0, prs: 0 })
     setLocalKey(uid); setLocalData({})
     await loadProfile(uid); await loadFeed(); await loadFollows()
+    registerPush(uid)
     return data
   }
 
@@ -299,6 +338,7 @@ export default function App() {
       setLocalKey(data.user.id)
       setLocalData(readLocal())
       await loadProfile(data.user.id); await loadFeed(); await loadFollows()
+      registerPush(data.user.id)
     }
     return data
   }
@@ -342,7 +382,10 @@ export default function App() {
         await supabase.from('likes').delete().eq('post_id', postId).eq('user_id', uid)
       } else {
         await supabase.from('likes').insert({ post_id: postId, user_id: uid })
-        if (post.userId !== uid) supabase.from('notifications').insert({ user_id: post.userId, from_id: uid, type: 'like', post_id: postId }).catch(() => {})
+        if (post.userId !== uid) {
+          supabase.from('notifications').insert({ user_id: post.userId, from_id: uid, type: 'like', post_id: postId }).catch(() => {})
+          sendPushTo(post.userId, '❤️ Nouveau like', `@${profile?.pseudo} a liké ta photo`, 'like')
+        }
       }
     } catch(e) {
       console.error('toggleLike:', e)
@@ -357,6 +400,7 @@ export default function App() {
     const post = feed.find(p => p.id === postId)
     if (post && post.userId !== supaSession.user.id) {
       supabase.from('notifications').insert({ user_id: post.userId, from_id: supaSession.user.id, type: 'comment', post_id: postId }).catch(() => {})
+      sendPushTo(post.userId, '💬 Nouveau commentaire', `@${profile.pseudo} a commenté ton post`, 'comment')
     }
     loadFeed()
   }
@@ -372,6 +416,7 @@ export default function App() {
       } else {
         await supabase.from('follows').insert({ follower_id: uid, following_id: userId })
         supabase.from('notifications').insert({ user_id: userId, from_id: uid, type: 'follow' }).catch(() => {})
+        sendPushTo(userId, '👥 Nouvel abonné', `@${profile?.pseudo} te suit maintenant`, 'follow')
       }
     } catch(e) {
       console.error('toggleFollow:', e)
@@ -422,10 +467,12 @@ export default function App() {
       end_date: endDate,
     })
     if (error) throw error
-    // Notify opponent
+    // Notif in-app
     supabase.from('notifications').insert({
       user_id: opponentId, from_id: supaSession.user.id, type: 'challenge',
     }).catch(() => {})
+    // Push notification
+    sendPushTo(opponentId, '⚡ Nouveau défi !', `@${profile.pseudo} te lance un défi : ${title}`, 'challenge')
     await loadChallenges()
   }
 
