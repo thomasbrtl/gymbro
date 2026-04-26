@@ -272,9 +272,9 @@ html,body{background:#0A0A0F;font-family:'Barlow Condensed','Arial Narrow',sans-
 .btn-g{padding:9px 14px;background:#1A1A24;border:1.5px solid #2A2A3A;color:#AAA;border-radius:9px;font-family:'Barlow Condensed',sans-serif;font-size:12px;font-weight:700;cursor:pointer;transition:all .2s;}
 .btn-g:hover{border-color:#444;color:#F0F0F0;}
 .card{background:#0D0D14;border-radius:14px;border:1px solid #1A1A24;}
-.modal-bg{position:fixed;inset:0;background:#000000E8;display:flex;align-items:flex-end;justify-content:center;z-index:400;animation:fadeIn .2s ease;}
-.modal-sheet{background:#0F0F18;border-radius:20px 20px 0 0;width:100%;max-width:430px;max-height:91vh;overflow-y:auto;padding:0 0 env(safe-area-inset-bottom,16px);animation:slideUp .3s ease;}
-.modal-center{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;z-index:500;padding:20px;animation:fadeIn .2s ease;}
+.modal-bg{position:fixed;inset:0;background:#000000E8;display:flex;align-items:flex-end;justify-content:center;z-index:400;animation:fadeIn .2s ease;overscroll-behavior:contain;touch-action:none;}
+.modal-sheet{background:#0F0F18;border-radius:20px 20px 0 0;width:100%;max-width:430px;max-height:91vh;overflow-y:auto;padding:0 0 env(safe-area-inset-bottom,16px);animation:slideUp .3s ease;overscroll-behavior:contain;touch-action:pan-y;}
+.modal-center{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;z-index:500;padding:20px;animation:fadeIn .2s ease;overscroll-behavior:contain;touch-action:none;}
 .modal-handle{width:36px;height:4px;background:#2A2A3A;border-radius:2px;margin:12px auto 14px;}
 .fullscreen{position:fixed;inset:0;background:#0A0A0F;z-index:300;overflow-y:auto;max-width:430px;left:50%;transform:translateX(-50%);}
 .glow{box-shadow:0 0 18px rgba(255,61,61,.18);}
@@ -840,7 +840,7 @@ function AppMain({appState,updateState,onLogout,overrides={}}){
 
       {/* Notifications */}
       {showNotifs&&(
-        <div className="modal-bg" onClick={()=>setShowNotifs(false)}>
+        <div className="modal-bg" onTouchMove={e=>e.stopPropagation()} onWheel={e=>e.stopPropagation()} onClick={()=>setShowNotifs(false)}>
           <div className="modal-sheet" onClick={e=>e.stopPropagation()}>
             <div className="modal-handle"/>
             <div style={{padding:"0 18px"}}>
@@ -1502,8 +1502,11 @@ function MessagesTab({conversations,user,av,updateState,appState,overrides,onOpe
 
       {/* MODAL LANCER UN DÉFI */}
       {showDefiModal&&(
-        <div className="modal-bg" onClick={()=>{setShowDefiModal(null);setSelPreset(null);}}>
-          <div className="modal-sheet" onClick={e=>e.stopPropagation()} style={{display:"flex",flexDirection:"column",maxHeight:"88vh"}}>
+        <div className="modal-bg"
+          onClick={()=>{setShowDefiModal(null);setSelPreset(null);}}
+          onTouchMove={e=>e.stopPropagation()}
+          onWheel={e=>e.stopPropagation()}>
+          <div className="modal-sheet" onClick={e=>e.stopPropagation()} onTouchMove={e=>e.stopPropagation()} style={{display:"flex",flexDirection:"column",maxHeight:"88vh"}}>
             <div className="modal-handle" style={{flexShrink:0}}/>
             {/* Header — fixe */}
             <div style={{padding:"0 16px 12px",flexShrink:0}}>
@@ -1670,7 +1673,7 @@ function NewProgramWizard({onDone,onCancel}){
 
       {/* Exercise bank modal — key fix: only render when editDayIdx is not null */}
       {editDayIdx!==null&&(
-        <div className="modal-bg" onClick={()=>setEditDayIdx(null)}>
+        <div className="modal-bg" onTouchMove={e=>e.stopPropagation()} onWheel={e=>e.stopPropagation()} onClick={()=>setEditDayIdx(null)}>
           <div className="modal-sheet" onClick={e=>e.stopPropagation()} style={{maxHeight:"82vh"}}>
             <div className="modal-handle"/>
             <div style={{padding:"0 14px 16px"}}>
@@ -1774,7 +1777,7 @@ function ActiveSession({session,onFinish,onCancel}){
       </div>
 
       {showAddExo&&(
-        <div className="modal-bg" onClick={()=>setShowAddExo(false)}>
+        <div className="modal-bg" onTouchMove={e=>e.stopPropagation()} onWheel={e=>e.stopPropagation()} onClick={()=>setShowAddExo(false)}>
           <div className="modal-sheet" onClick={e=>e.stopPropagation()} style={{maxHeight:"80vh"}}>
             <div className="modal-handle"/>
             <div style={{padding:"0 14px 16px"}}>
@@ -2540,7 +2543,7 @@ function RankedTab({appState,updateState,rank,nextRank,rankPct,stats,giveXP}){
 
       {/* Country picker */}
       {showCountry&&(
-        <div className="modal-bg" onClick={()=>setShowCountry(false)}>
+        <div className="modal-bg" onTouchMove={e=>e.stopPropagation()} onWheel={e=>e.stopPropagation()} onClick={()=>setShowCountry(false)}>
           <div className="modal-sheet" onClick={e=>e.stopPropagation()}>
             <div className="modal-handle"/>
             <div style={{padding:"0 14px"}}>
@@ -2558,7 +2561,7 @@ function RankedTab({appState,updateState,rank,nextRank,rankPct,stats,giveXP}){
 
       {/* Rank path overlay */}
       {showRankPath&&(
-        <div className="modal-bg" onClick={()=>setShowRankPath(false)}>
+        <div className="modal-bg" onTouchMove={e=>e.stopPropagation()} onWheel={e=>e.stopPropagation()} onClick={()=>setShowRankPath(false)}>
           <div className="modal-sheet" onClick={e=>e.stopPropagation()} style={{maxHeight:"85vh"}}>
             <div className="modal-handle"/>
             <div style={{padding:"0 14px 10px"}}>
@@ -2607,7 +2610,7 @@ function PostViewModal({post,onClose,toggleLike,addComment,myPseudo,myAvatarVal,
     setCommentText("");
   };
   return(
-    <div className="modal-bg" onClick={onClose} style={{alignItems:"flex-start",zIndex:zIndex||400}}>
+    <div className="modal-bg" onTouchMove={e=>e.stopPropagation()} onWheel={e=>e.stopPropagation()} onClick={onClose} style={{alignItems:"flex-start",zIndex:zIndex||400}}>
       <div onClick={e=>e.stopPropagation()} style={{background:"#0F0F18",width:"100%",maxWidth:430,maxHeight:"96vh",overflow:"auto",borderRadius:"20px 20px 0 0",animation:"slideUp .3s ease",paddingBottom:24}}>
         <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"14px 16px",borderBottom:"1px solid #1A1A24"}}>
           <div style={{display:"flex",alignItems:"center",gap:10}}>
@@ -2904,7 +2907,7 @@ function EditProfileModal({user,onClose,onSave}){
   const save=()=>{onSave({pseudo,bio,poids:Number(poids)||user.poids,taille:Number(taille)||user.taille,avatar:avatarData});onClose();};
   const lbl=txt=><div style={{fontSize:10,fontWeight:700,color:"#555",textTransform:"uppercase",letterSpacing:".09em",marginBottom:4,fontFamily:"'Barlow Condensed',sans-serif"}}>{txt}</div>;
   return(
-    <div className="modal-bg" onClick={onClose}>
+    <div className="modal-bg" onTouchMove={e=>e.stopPropagation()} onWheel={e=>e.stopPropagation()} onClick={onClose}>
       <div className="modal-sheet" onClick={e=>e.stopPropagation()}>
         <div className="modal-handle"/>
         <div style={{padding:"0 16px"}}>
