@@ -810,7 +810,7 @@ function AppMain({appState,updateState,onLogout,overrides={}}){
       {/* Content */}
       <div className="sa" style={{height:"calc(100vh - 56px - env(safe-area-inset-top,0px) - env(safe-area-inset-bottom,0px) - 56px)",paddingBottom:16}}>
         {tab==="feed"     && <FeedTab appState={appState} updateState={updateState} addPost={addPost} onOpenProfile={p=>setViewProfile(p)} toggleLike={toggleLike} addComment={addComment} toggleFollow={toggleFollow} following={following} av={av} myPseudo={user.pseudo} myAvatarVal={user.avatar||""}/>}
-        {tab==="messages" && <MessagesTab conversations={conversations} user={user} av={av} updateState={updateState}/>}
+        {tab==="messages" && <MessagesTab conversations={conversations} user={user} av={av} updateState={updateState} appState={appState}/>}
         {tab==="program"  && <ProgramTab appState={appState} updateState={updateState} saveSession={saveSession}/>}
         {tab==="trophies" && <TrophiesTab stats={stats} user={user} updateState={updateState}/>}
         {tab==="ranked"   && <RankedTab appState={{...appState,_openProfile:(p)=>setViewProfile(p)}} updateState={updateState} rank={rank} nextRank={nextRank} rankPct={rankPct} stats={stats}/>}
@@ -874,14 +874,12 @@ function AppMain({appState,updateState,onLogout,overrides={}}){
       {/* Profile overlay — uses viewport units to guarantee full screen */}
       {viewProfile&&(
         <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,width:"100vw",height:"100vh",background:"#0A0A0F",zIndex:999,overflowY:"auto",WebkitOverflowScrolling:"touch"}}>
-          <div style={{maxWidth:430,margin:"0 auto",minHeight:"100%"}}>
-            <FullUserProfile post={viewProfile} posts={posts} following={following} toggleFollow={toggleFollow}
+          <FullUserProfile post={viewProfile} posts={posts} following={following} toggleFollow={toggleFollow}
               onClose={()=>setViewProfile(null)}
               onMessage={(id,p,av,fb)=>{setViewProfile(null);setTab("messages");}}
               myPseudo={user.pseudo} av={av} userAvatar={user.avatar}
               myStats={stats} myUser={user} appState={appState}
               onOpenPost={(p)=>setViewPostGlobal(p)}/>
-          </div>
         </div>
       )}
       {/* Global PostViewModal — zIndex:1100 above profile overlay (999) */}
@@ -1121,7 +1119,7 @@ function FullUserProfile({post,posts,following,toggleFollow,onClose,onMessage,my
   const pinnedIds=isMe?(displayUser?.pinnedTrophies||[]):(post._profilePinnedTrophies||[]);
   const pinnedTrophies=pinnedIds.map(id=>TROPHIES.find(t=>t.id===id)).filter(Boolean);
   return(
-    <div className="fullscreen" style={{overflowY:"auto",WebkitOverflowScrolling:"touch"}}>
+    <div style={{position:"fixed",inset:0,background:"#0A0A0F",zIndex:300,overflowY:"auto",WebkitOverflowScrolling:"touch"}}>
       <div style={{display:"flex",alignItems:"center",gap:12,padding:"max(env(safe-area-inset-top,0px),14px) 16px 10px",borderBottom:"1px solid #1A1A24",background:"#0A0A0F",position:"sticky",top:0,zIndex:10}}>
         <button onClick={onClose} style={{background:"none",border:"none",color:"#888",fontSize:22,cursor:"pointer",lineHeight:1,display:"flex",alignItems:"center"}}>
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
@@ -1220,9 +1218,11 @@ function FullUserProfile({post,posts,following,toggleFollow,onClose,onMessage,my
   );
 }
 
+
 // ══════════════════════ MESSAGES ══
-function MessagesTab({conversations,user,av,updateState}){
+function MessagesTab({conversations,user,av,updateState,appState}){
   const [openConv,setOpenConv]=useState(null);
+  const [msgSubTab,setMsgSubTab]=useState("messages");
   const [msgText,setMsgText]=useState("");
   const endRef=useRef(null);
   const conv=openConv?conversations?.find(c=>c.id===openConv):null;
@@ -1230,25 +1230,24 @@ function MessagesTab({conversations,user,av,updateState}){
   const sendMsg=()=>{
     if(!msgText.trim()||!conv)return;
     const text=msgText.trim(); setMsgText("");
-    // Optimistic local update
     updateState(s=>{
       const convs=(s.conversations||[]).map(cv=>cv.id!==conv.id?cv:{...cv,messages:[...cv.messages,{id:genId(),from:"me",text,ts:Date.now()}]});
       return {conversations:convs};
     });
-    // Sync to Supabase via parent sendMessage
-    // conv.withId is the recipient's user ID
     if(conv.withId && conv.withId !== "me"){
-      // Call global sendMessage if available through window event
       window.dispatchEvent(new CustomEvent("gymbro_sendmsg",{detail:{toId:conv.withId,toPseudo:conv.withPseudo,avatarVal:conv.avatarVal||"",avatarFb:conv.avatarFallback||"👤",text}}));
     }
   };
   if(openConv&&conv){
     return(
       <div style={{display:"flex",flexDirection:"column",height:"calc(100vh - 56px - env(safe-area-inset-top,0px) - env(safe-area-inset-bottom,0px) - 56px)"}}>
-        <div style={{display:"flex",alignItems:"center",gap:10,padding:"10px 14px",borderBottom:"1px solid #1A1A24",background:"#0A0A0F",flexShrink:0}}>
-          <button onClick={()=>setOpenConv(null)} style={{background:"none",border:"none",color:"#888",fontSize:20,cursor:"pointer"}}>←</button>
-          <Avatar val={conv.avatarVal||""} fallback={conv.avatarFallback||"👤"} size={32} border="#2A2A3A"/>
-          <div style={{fontSize:15,fontWeight:800}}>@{conv.withPseudo}</div>
+        <div style={{display:"flex",alignItems:"center",gap:10,padding:"12px 16px",borderBottom:"1px solid #1A1A24",background:"#0A0A0F",flexShrink:0}}>
+          <button onClick={()=>setOpenConv(null)} style={{background:"none",border:"none",color:"#888",cursor:"pointer",display:"flex",alignItems:"center"}}>
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+          </button>
+          <Avatar val={conv.avatarVal||""} fallback={conv.avatarFallback||"👤"} size={34} border="#2A2A3A"/>
+          <div style={{fontSize:15,fontWeight:900}}>@{conv.withPseudo}</div>
+          <div style={{marginLeft:"auto",width:8,height:8,borderRadius:"50%",background:"#22C55E"}}/>
         </div>
         <div className="sa" style={{flex:1,padding:"12px 14px",display:"flex",flexDirection:"column",gap:8}}>
           {conv.messages.map(m=>{
@@ -1261,28 +1260,88 @@ function MessagesTab({conversations,user,av,updateState}){
           })}
           <div ref={endRef}/>
         </div>
-        <div style={{padding:"8px 12px",borderTop:"1px solid #1A1A24",display:"flex",gap:8,background:"#0A0A0F",flexShrink:0}}>
+        <div style={{padding:"8px 12px 14px",borderTop:"1px solid #1A1A24",display:"flex",gap:8,background:"#0A0A0F",flexShrink:0}}>
           <textarea className="inp" placeholder="Message..." value={msgText} onChange={e=>setMsgText(e.target.value)} onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();sendMsg();}}} rows={1} style={{flex:1,fontSize:13,padding:"9px 12px",resize:"none",fontFamily:"'Barlow',sans-serif",lineHeight:1.4,minHeight:38,maxHeight:80}}/>
           <button onClick={sendMsg} disabled={!msgText.trim()} style={{background:"#FF3D3D",border:"none",color:"#FFF",borderRadius:10,padding:"0 14px",cursor:"pointer",fontWeight:800,fontSize:16,alignSelf:"flex-end",height:38,flexShrink:0}}>→</button>
         </div>
       </div>
     );
   }
+  const following = appState?.following || [];
   return(
-    <div style={{padding:"14px"}}>
-      <div style={{fontSize:19,fontWeight:900,marginBottom:14}}>Messages</div>
-      {(!conversations||conversations.length===0)?(<div style={{textAlign:"center",padding:"50px 20px",color:"#444"}}><div style={{fontSize:44,marginBottom:10}}>💬</div><div style={{fontSize:16,fontWeight:800,marginBottom:5}}>Aucun message</div><div style={{fontSize:12,color:"#333",fontFamily:"'Barlow',sans-serif"}}>Suis des créateurs et envoie-leur un message.</div></div>):(
-        conversations.map(c=>{const last=c.messages[c.messages.length-1];return(<div key={c.id} onClick={()=>setOpenConv(c.id)} style={{display:"flex",alignItems:"center",gap:11,padding:"11px 0",borderBottom:"1px solid #1A1A24",cursor:"pointer"}}>
-          <Avatar val={c.avatarVal||""} fallback={c.avatarFallback||"👤"} size={44} border="#2A2A3A"/>
-          <div style={{flex:1,minWidth:0}}><div style={{fontWeight:800,fontSize:14,marginBottom:2}}>@{c.withPseudo}</div><div style={{color:"#555",fontSize:12,fontFamily:"'Barlow',sans-serif",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{last?.from==="me"?"Toi: ":""}{last?.text||"…"}</div></div>
-          <div style={{color:"#333",fontSize:11}}>{last?timeSince(last.ts):""}</div>
-        </div>);})
+    <div>
+      <div style={{padding:"16px 16px 0",borderBottom:"1px solid #1A1A24",background:"#0A0A0FEE",backdropFilter:"blur(14px)",position:"sticky",top:0,zIndex:10}}>
+        <div style={{fontSize:26,fontWeight:900,marginBottom:12}}>Messages</div>
+        <div style={{display:"flex"}}>
+          <button className={`tab-b ${msgSubTab==="messages"?"on":""}`} onClick={()=>setMsgSubTab("messages")}>MESSAGES</button>
+          <button className={`tab-b ${msgSubTab==="amis"?"on":""}`} onClick={()=>setMsgSubTab("amis")}>AMIS</button>
+        </div>
+      </div>
+      {msgSubTab==="messages"&&(
+        <div style={{padding:"0 14px"}}>
+          {(!conversations||conversations.length===0)
+            ?<div style={{textAlign:"center",padding:"56px 20px",color:"#444"}}>
+               <div style={{fontSize:44,marginBottom:10}}>💬</div>
+               <div style={{fontSize:16,fontWeight:800,marginBottom:5}}>Aucun message</div>
+               <div style={{fontSize:12,color:"#333",fontFamily:"'Barlow',sans-serif"}}>Suis des créateurs et envoie-leur un message depuis leur profil.</div>
+             </div>
+            :conversations.map(c=>{const last=c.messages[c.messages.length-1];return(
+              <div key={c.id} onClick={()=>setOpenConv(c.id)} style={{display:"flex",alignItems:"center",gap:12,padding:"14px 0",borderBottom:"1px solid #1A1A24",cursor:"pointer"}}>
+                <div style={{position:"relative"}}>
+                  <Avatar val={c.avatarVal||""} fallback={c.avatarFallback||"👤"} size={46} border="#2A2A3A"/>
+                  <div style={{position:"absolute",bottom:1,right:1,width:11,height:11,borderRadius:"50%",background:"#22C55E",border:"2px solid #0A0A0F"}}/>
+                </div>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontWeight:800,fontSize:15,marginBottom:2}}>@{c.withPseudo}</div>
+                  <div style={{color:"#444",fontSize:13,fontFamily:"'Barlow',sans-serif",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{last?.from==="me"?"Toi: ":""}{last?.text||"…"}</div>
+                </div>
+                <div style={{color:"#333",fontSize:11,flexShrink:0}}>{last?timeSince(last.ts):""}</div>
+              </div>
+            );})
+          }
+        </div>
+      )}
+      {msgSubTab==="amis"&&(
+        <div style={{padding:"12px 14px"}}>
+          <div style={{fontSize:12,color:"#444",fontFamily:"'Barlow',sans-serif",marginBottom:14,lineHeight:1.5}}>
+            Les personnes que tu suis. Lance un défi ou envoie un message directement.
+          </div>
+          {following.length===0
+            ?<div style={{textAlign:"center",padding:"56px 20px",color:"#444"}}>
+               <div style={{fontSize:44,marginBottom:10}}>👥</div>
+               <div style={{fontSize:16,fontWeight:800,marginBottom:5}}>Aucun ami encore</div>
+               <div style={{fontSize:12,color:"#333",fontFamily:"'Barlow',sans-serif"}}>Suis des personnes depuis le feed pour les retrouver ici</div>
+             </div>
+            :following.map((uid)=>{
+              const c=conversations?.find(cv=>cv.withId===uid||cv.id===uid);
+              const pseudo=c?.withPseudo||uid;
+              const avatarVal=c?.avatarVal||"";
+              const avatarFb=c?.avatarFallback||"👤";
+              return(
+                <div key={uid} style={{display:"flex",alignItems:"center",gap:12,padding:"12px 0",borderBottom:"1px solid #1A1A24"}}>
+                  <Avatar val={avatarVal} fallback={avatarFb} size={44} border="#2A2A3A"/>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{fontWeight:800,fontSize:15}}>@{pseudo}</div>
+                    <div style={{fontSize:11,color:"#444",marginTop:2}}>Abonné</div>
+                  </div>
+                  <div style={{display:"flex",gap:7}}>
+                    <button onClick={()=>{if(c)setOpenConv(c.id);}} style={{background:"#FF3D3D14",border:"1px solid #FF3D3D44",color:"#FF6B6B",borderRadius:9,padding:"7px 12px",fontFamily:"'Barlow Condensed',sans-serif",fontSize:12,fontWeight:800,cursor:"pointer"}}>
+                      Message
+                    </button>
+                    <button style={{background:"#1A1A24",border:"1px solid #2A2A3A",color:"#888",borderRadius:9,padding:"7px 10px",fontFamily:"'Barlow Condensed',sans-serif",fontSize:12,fontWeight:800,cursor:"pointer"}}>
+                      ⚡ Défi
+                    </button>
+                  </div>
+                </div>
+              );
+            })
+          }
+        </div>
       )}
     </div>
   );
 }
 
-// ══════════════════════ PROGRAM TAB ══
 function ProgramTab({appState,updateState,saveSession}){
   const {programs=[],exercises={},sessionHistory=[]}=appState;
   const [view,setView]=useState("list"); // list | new | active | progress | history | body
@@ -1784,31 +1843,36 @@ function getMusclesWorked(exerciseHistory){
   return counts;
 }
 
+
 const MUSCLE_DEFS_FRONT = [
-  {id:"chest",     label:"Poitrine",  d:"M70 65 C62 68 56 80 56 95 L56 128 L94 122 L94 68 Z"},
-  {id:"chest",     label:"Poitrine",  d:"M130 65 C138 68 144 80 144 95 L144 128 L106 122 L106 68 Z"},
-  {id:"shoulders", label:"Épaules",   d:"M46 62 C36 62 30 73 30 84 L30 100 L50 96 L54 68 Z"},
-  {id:"shoulders", label:"Épaules",   d:"M154 62 C164 62 170 73 170 84 L170 100 L150 96 L146 68 Z"},
-  {id:"biceps",    label:"Biceps",    d:"M32 100 C29 110 29 130 32 144 L42 148 L50 130 L50 96 Z"},
-  {id:"biceps",    label:"Biceps",    d:"M168 100 C171 110 171 130 168 144 L158 148 L150 130 L150 96 Z"},
-  {id:"abs",       label:"Abdos",     d:"M76 128 L124 128 L126 182 L100 185 L74 182 Z"},
-  {id:"quads",     label:"Quadriceps",d:"M44 210 C40 218 38 240 40 270 L43 295 L75 295 L78 265 L80 215 Z"},
-  {id:"quads",     label:"Quadriceps",d:"M156 210 C160 218 162 240 160 270 L157 295 L125 295 L122 265 L120 215 Z"},
-  {id:"calves",    label:"Mollets",   d:"M40 295 C37 308 37 332 41 350 L50 356 L75 354 L78 344 L78 295 Z"},
-  {id:"calves",    label:"Mollets",   d:"M160 295 C163 308 163 332 159 350 L150 356 L125 354 L122 344 L122 295 Z"},
+  {id:"chest",     label:"Poitrine",   d:"M70 65 C62 68 56 80 56 95 L56 128 L94 122 L94 68 Z"},
+  {id:"chest",     label:"Poitrine",   d:"M130 65 C138 68 144 80 144 95 L144 128 L106 122 L106 68 Z"},
+  {id:"shoulders", label:"Épaules",    d:"M46 62 C36 62 30 73 30 84 L30 100 L50 96 L54 68 Z"},
+  {id:"shoulders", label:"Épaules",    d:"M154 62 C164 62 170 73 170 84 L170 100 L150 96 L146 68 Z"},
+  {id:"biceps",    label:"Biceps",     d:"M32 100 C29 110 29 130 32 144 L42 148 L50 130 L50 96 Z"},
+  {id:"biceps",    label:"Biceps",     d:"M168 100 C171 110 171 130 168 144 L158 148 L150 130 L150 96 Z"},
+  {id:"abs",       label:"Abdos",      d:"M76 128 L124 128 L126 182 L100 185 L74 182 Z"},
+  {id:"quads",     label:"Quadriceps", d:"M44 210 C40 218 38 240 40 270 L43 295 L75 295 L78 265 L80 215 Z"},
+  {id:"quads",     label:"Quadriceps", d:"M156 210 C160 218 162 240 160 270 L157 295 L125 295 L122 265 L120 215 Z"},
+  {id:"calves",    label:"Mollets",    d:"M40 295 C37 308 37 332 41 350 L50 356 L75 354 L78 344 L78 295 Z"},
+  {id:"calves",    label:"Mollets",    d:"M160 295 C163 308 163 332 159 350 L150 356 L125 354 L122 344 L122 295 Z"},
+  {id:"triceps",   label:"Triceps",    d:"M28 98 C25 108 25 128 28 142 L38 146 L46 128 L46 94 Z"},
+  {id:"triceps",   label:"Triceps",    d:"M172 98 C175 108 175 128 172 142 L162 146 L154 128 L154 94 Z"},
+  {id:"abs",       label:"Obliques",   d:"M56 128 L76 128 L74 182 L52 170 Z"},
+  {id:"abs",       label:"Obliques",   d:"M144 128 L124 128 L126 182 L148 170 Z"},
 ];
 const MUSCLE_DEFS_BACK = [
-  {id:"back",      label:"Dos",          d:"M58 68 C50 75 48 95 48 118 L50 180 L150 180 L152 118 C152 95 150 75 142 68 Z"},
-  {id:"traps",     label:"Trapèzes",     d:"M72 58 L128 58 L138 70 L100 78 L62 70 Z"},
-  {id:"rear_delts",label:"Deltoïdes",    d:"M48 68 C38 68 32 78 32 90 L34 108 L52 104 L54 74 Z"},
-  {id:"rear_delts",label:"Deltoïdes",    d:"M152 68 C162 68 168 78 168 90 L166 108 L148 104 L146 74 Z"},
-  {id:"triceps",   label:"Triceps",      d:"M32 104 C29 116 29 136 33 150 L44 154 L52 136 L52 100 Z"},
-  {id:"triceps",   label:"Triceps",      d:"M168 104 C171 116 171 136 167 150 L156 154 L148 136 L148 100 Z"},
-  {id:"glutes",    label:"Fessiers",     d:"M48 185 C42 192 40 205 44 222 L78 228 L100 225 L122 228 L156 222 C160 205 158 192 152 185 Z"},
-  {id:"hamstrings",label:"Ischio",       d:"M45 225 C40 235 38 258 41 282 L44 296 L75 295 L78 278 L80 228 Z"},
-  {id:"hamstrings",label:"Ischio",       d:"M155 225 C160 235 162 258 159 282 L156 296 L125 295 L122 278 L120 228 Z"},
-  {id:"calves",    label:"Mollets",      d:"M40 295 C37 308 37 332 41 350 L50 356 L75 354 L78 344 L78 295 Z"},
-  {id:"calves",    label:"Mollets",      d:"M160 295 C163 308 163 332 159 350 L150 356 L125 354 L122 344 L122 295 Z"},
+  {id:"back",       label:"Dos",           d:"M58 68 C50 75 48 95 48 118 L50 180 L150 180 L152 118 C152 95 150 75 142 68 Z"},
+  {id:"traps",      label:"Trapèzes",      d:"M72 58 L128 58 L138 70 L100 78 L62 70 Z"},
+  {id:"rear_delts", label:"Deltoïdes arr.",d:"M48 68 C38 68 32 78 32 90 L34 108 L52 104 L54 74 Z"},
+  {id:"rear_delts", label:"Deltoïdes arr.",d:"M152 68 C162 68 168 78 168 90 L166 108 L148 104 L146 74 Z"},
+  {id:"triceps",    label:"Triceps",       d:"M32 104 C29 116 29 136 33 150 L44 154 L52 136 L52 100 Z"},
+  {id:"triceps",    label:"Triceps",       d:"M168 104 C171 116 171 136 167 150 L156 154 L148 136 L148 100 Z"},
+  {id:"glutes",     label:"Fessiers",      d:"M48 185 C42 192 40 205 44 222 L78 228 L100 225 L122 228 L156 222 C160 205 158 192 152 185 Z"},
+  {id:"hamstrings", label:"Ischio-jambiers",d:"M45 225 C40 235 38 258 41 282 L44 296 L75 295 L78 278 L80 228 Z"},
+  {id:"hamstrings", label:"Ischio-jambiers",d:"M155 225 C160 235 162 258 159 282 L156 296 L125 295 L122 278 L120 228 Z"},
+  {id:"calves",     label:"Mollets",       d:"M40 295 C37 308 37 332 41 350 L50 356 L75 354 L78 344 L78 295 Z"},
+  {id:"calves",     label:"Mollets",       d:"M160 295 C163 308 163 332 159 350 L150 356 L125 354 L122 344 L122 295 Z"},
 ];
 
 function getStatusLabel(count){
@@ -1820,7 +1884,7 @@ function getStatusLabel(count){
 }
 function getMuscleColor(muscleWork,id){
   const c=muscleWork[id]||0;
-  if(c===0)return"#1E1E2A";
+  if(c===0)return"#1A1A2A";
   if(c===1)return"#22C55E";
   if(c===2)return"#FBBF24";
   if(c===3)return"#F97316";
@@ -1841,86 +1905,128 @@ function MuscleMap({exercises,onBack}){
   const defs=showBack?MUSCLE_DEFS_BACK:MUSCLE_DEFS_FRONT;
 
   return(
-    <div style={{padding:"14px 14px"}}>
-      <button onClick={onBack} style={{background:"none",border:"none",color:"#666",cursor:"pointer",fontFamily:"'Barlow Condensed',sans-serif",fontSize:13,fontWeight:700,marginBottom:14}}>{"<"} Programmes</button>
-      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
-        <div style={{fontSize:19,fontWeight:900}}>{"💪"} CORPS</div>
-        <div style={{display:"flex",gap:0,background:"#1A1A24",borderRadius:9,overflow:"hidden"}}>
-          <button onClick={()=>setShowBack(false)} style={{padding:"7px 14px",background:!showBack?"#FF3D3D":"transparent",border:"none",color:"#F0F0F0",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>Avant</button>
-          <button onClick={()=>setShowBack(true)}  style={{padding:"7px 14px",background:showBack?"#FF3D3D":"transparent",border:"none",color:"#F0F0F0",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>{"Arrière"}</button>
+    <div>
+      {/* Header */}
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"14px 16px 10px",borderBottom:"1px solid #1A1A24",background:"#0A0A0FEE",backdropFilter:"blur(14px)",position:"sticky",top:0,zIndex:10}}>
+        <div style={{display:"flex",alignItems:"center",gap:10}}>
+          <button onClick={onBack} style={{background:"none",border:"none",color:"#888",cursor:"pointer",display:"flex",alignItems:"center"}}>
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+          </button>
+          <div style={{fontSize:20,fontWeight:900}}>Corps</div>
+        </div>
+        <div style={{display:"flex",background:"#13131A",borderRadius:10,overflow:"hidden",border:"1px solid #1E1E2E"}}>
+          <button onClick={()=>setShowBack(false)} style={{padding:"8px 16px",background:!showBack?"#FF3D3D":"transparent",border:"none",color:"#F0F0F0",fontSize:12,fontWeight:800,cursor:"pointer",fontFamily:"'Barlow Condensed',sans-serif",letterSpacing:".04em",transition:"all .2s"}}>AVANT</button>
+          <button onClick={()=>setShowBack(true)}  style={{padding:"8px 16px",background:showBack?"#FF3D3D":"transparent",border:"none",color:"#F0F0F0",fontSize:12,fontWeight:800,cursor:"pointer",fontFamily:"'Barlow Condensed',sans-serif",letterSpacing:".04em",transition:"all .2s"}}>ARRIÈRE</button>
         </div>
       </div>
 
-      <div style={{display:"flex",gap:8,marginBottom:12,flexWrap:"wrap"}}>
-        {[{c:"#1E1E2A",l:"0"},{c:"#22C55E",l:"1 exo"},{c:"#FBBF24",l:"2 exos"},{c:"#F97316",l:"3 exos"},{c:"#EF4444",l:"4+"}].map(({c,l})=>(
-          <div key={l} style={{display:"flex",alignItems:"center",gap:5,fontSize:10,color:"#888",fontFamily:"'Barlow',sans-serif"}}>
-            <div style={{width:10,height:10,borderRadius:3,background:c,flexShrink:0}}/>
-            {l}
-          </div>
-        ))}
-      </div>
+      <div style={{padding:"0 16px 24px"}}>
+        {/* Legend */}
+        <div style={{display:"flex",gap:12,padding:"10px 0",overflowX:"auto",marginBottom:4}}>
+          {[{c:"#1A1A2A",b:"#2A2A3A",l:"Non travaillé"},{c:"#22C55E",l:"1 exo"},{c:"#FBBF24",l:"2 exos"},{c:"#F97316",l:"3 exos"},{c:"#EF4444",l:"4+"}].map(({c,b,l})=>(
+            <div key={l} style={{display:"flex",alignItems:"center",gap:5,fontSize:10,color:"#888",fontFamily:"'Barlow',sans-serif",flexShrink:0}}>
+              <div style={{width:10,height:10,borderRadius:3,background:c,border:b?`1px solid ${b}`:"none",flexShrink:0}}/>
+              {l}
+            </div>
+          ))}
+        </div>
 
-      <div style={{display:"flex",justifyContent:"center",marginBottom:14}}>
-        <svg viewBox="0 0 200 420" style={{width:"100%",maxWidth:200,display:"block"}} xmlns="http://www.w3.org/2000/svg">
-          {/* Body silhouette */}
-          <ellipse cx="100" cy="28" rx="20" ry="23" fill="#1C1C28" stroke="#2E2E42" strokeWidth="1.5"/>
-          <rect x="92" y="49" width="16" height="11" rx="5" fill="#1C1C28" stroke="#2E2E42" strokeWidth="1"/>
-          <path d="M68 58 C55 60 48 72 46 88 L44 185 L156 185 L154 88 C152 72 145 60 132 58 Z" fill="#1C1C28" stroke="#2E2E42" strokeWidth="1.5"/>
-          <path d="M46 75 C36 75 30 84 30 96 L30 148 C30 158 36 162 44 162 L50 162 L50 88 Z" fill="#1C1C28" stroke="#2E2E42" strokeWidth="1"/>
-          <path d="M154 75 C164 75 170 84 170 96 L170 148 C170 158 164 162 156 162 L150 162 L150 88 Z" fill="#1C1C28" stroke="#2E2E42" strokeWidth="1"/>
-          <path d="M30 148 C28 158 28 178 32 192 L40 195 L50 188 L50 148 Z" fill="#1C1C28" stroke="#2E2E42" strokeWidth="1"/>
-          <path d="M170 148 C172 158 172 178 168 192 L160 195 L150 188 L150 148 Z" fill="#1C1C28" stroke="#2E2E42" strokeWidth="1"/>
-          <path d="M46 185 L154 185 L158 210 L42 210 Z" fill="#1C1C28" stroke="#2E2E42" strokeWidth="1"/>
-          <path d="M44 208 C40 212 36 225 37 255 L40 298 L78 298 L82 255 C83 225 80 212 78 208 Z" fill="#1C1C28" stroke="#2E2E42" strokeWidth="1.5"/>
-          <path d="M156 208 C160 212 164 225 163 255 L160 298 L122 298 L118 255 C117 225 120 212 122 208 Z" fill="#1C1C28" stroke="#2E2E42" strokeWidth="1.5"/>
-          <path d="M40 296 C37 308 37 330 40 350 L48 360 L74 358 L78 348 L78 296 Z" fill="#1C1C28" stroke="#2E2E42" strokeWidth="1"/>
-          <path d="M160 296 C163 308 163 330 160 350 L152 360 L126 358 L122 348 L122 296 Z" fill="#1C1C28" stroke="#2E2E42" strokeWidth="1"/>
-          {/* Muscle overlays — plain array.map, no IIFEs */}
-          {defs.map((m,i)=>{
-            const col=getMuscleColor(muscleWork,m.id);
-            const isActive=col!=="1E1E2A"&&col!=="#1E1E2A";
+        {/* SVG Body - new anatomical design */}
+        <div style={{display:"flex",justifyContent:"center",margin:"8px 0 16px"}}>
+          <svg viewBox="0 0 200 420" style={{width:"min(100%,220px)",display:"block",filter:"drop-shadow(0 4px 20px rgba(0,0,0,.5))"}} xmlns="http://www.w3.org/2000/svg">
+            <defs>
+              <radialGradient id="bodyGrad" cx="50%" cy="40%" r="60%">
+                <stop offset="0%" stopColor="#252535"/>
+                <stop offset="100%" stopColor="#141420"/>
+              </radialGradient>
+              <filter id="glow">
+                <feGaussianBlur stdDeviation="2" result="blur"/>
+                <feComposite in="SourceGraphic" in2="blur" operator="over"/>
+              </filter>
+            </defs>
+
+            {/* Body silhouette — head */}
+            <ellipse cx="100" cy="28" rx="20" ry="23" fill="url(#bodyGrad)" stroke="#252535" strokeWidth="1.5"/>
+            {/* Neck */}
+            <rect x="93" y="49" width="14" height="12" rx="4" fill="#1E1E2E" stroke="#252535" strokeWidth="1"/>
+            {/* Torso */}
+            <path d="M68 58 C55 60 48 72 46 88 L44 185 L156 185 L154 88 C152 72 145 60 132 58 Z" fill="url(#bodyGrad)" stroke="#252535" strokeWidth="1.5"/>
+            {/* Upper arms */}
+            <path d="M46 75 C36 75 30 84 30 96 L30 148 C30 158 36 162 44 162 L50 162 L50 88 Z" fill="#1E1E2E" stroke="#252535" strokeWidth="1"/>
+            <path d="M154 75 C164 75 170 84 170 96 L170 148 C170 158 164 162 156 162 L150 162 L150 88 Z" fill="#1E1E2E" stroke="#252535" strokeWidth="1"/>
+            {/* Forearms */}
+            <path d="M30 148 C28 158 28 178 32 192 L40 195 L50 188 L50 148 Z" fill="#1E1E2E" stroke="#252535" strokeWidth="1"/>
+            <path d="M170 148 C172 158 172 178 168 192 L160 195 L150 188 L150 148 Z" fill="#1E1E2E" stroke="#252535" strokeWidth="1"/>
+            {/* Hips transition */}
+            <path d="M46 185 L154 185 L158 210 L42 210 Z" fill="#1E1E2E" stroke="#252535" strokeWidth="1"/>
+            {/* Thighs */}
+            <path d="M44 208 C40 212 36 225 37 255 L40 298 L78 298 L82 255 C83 225 80 212 78 208 Z" fill="url(#bodyGrad)" stroke="#252535" strokeWidth="1.5"/>
+            <path d="M156 208 C160 212 164 225 163 255 L160 298 L122 298 L118 255 C117 225 120 212 122 208 Z" fill="url(#bodyGrad)" stroke="#252535" strokeWidth="1.5"/>
+            {/* Calves */}
+            <path d="M40 296 C37 308 37 330 40 350 L48 360 L74 358 L78 348 L78 296 Z" fill="url(#bodyGrad)" stroke="#252535" strokeWidth="1"/>
+            <path d="M160 296 C163 308 163 330 160 350 L152 360 L126 358 L122 348 L122 296 Z" fill="url(#bodyGrad)" stroke="#252535" strokeWidth="1"/>
+
+            {/* Muscle detail lines — chest separation (front only) */}
+            {!showBack&&<>
+              <line x1="100" y1="65" x2="100" y2="125" stroke="#1A1A2A" strokeWidth="1.5" strokeLinecap="round"/>
+              <line x1="58" y1="105" x2="142" y2="105" stroke="#1A1A2A" strokeWidth="1" strokeLinecap="round" opacity="0.5"/>
+              <line x1="62" y1="125" x2="138" y2="125" stroke="#1A1A2A" strokeWidth="1" strokeLinecap="round" opacity="0.4"/>
+              {/* Abs lines */}
+              <line x1="88" y1="128" x2="88" y2="182" stroke="#1A1A2A" strokeWidth="1" strokeLinecap="round" opacity="0.4"/>
+              <line x1="112" y1="128" x2="112" y2="182" stroke="#1A1A2A" strokeWidth="1" strokeLinecap="round" opacity="0.4"/>
+              <line x1="76" y1="145" x2="124" y2="145" stroke="#1A1A2A" strokeWidth="1" strokeLinecap="round" opacity="0.4"/>
+              <line x1="76" y1="163" x2="124" y2="163" stroke="#1A1A2A" strokeWidth="1" strokeLinecap="round" opacity="0.4"/>
+            </>}
+
+            {/* Muscle overlays */}
+            {defs.map((m,i)=>{
+              const col=getMuscleColor(muscleWork,m.id);
+              const isActive=col!=="1A1A2A"&&col!=="#1A1A2A";
+              return(
+                <path key={i} d={m.d}
+                  fill={col} fillOpacity={isActive?0.75:0}
+                  stroke={isActive?col:"transparent"} strokeWidth="0.5"
+                  style={{cursor:"pointer",transition:"fill-opacity .3s"}}
+                  onClick={()=>setSelected({id:m.id,label:m.label,count:muscleWork[m.id]||0})}
+                />
+              );
+            })}
+          </svg>
+        </div>
+
+        {/* Selected muscle info */}
+        {selected&&(
+          <div style={{background:"#0D0D14",border:`1px solid ${getMuscleLabel(selected.count).color}44`,borderRadius:12,padding:"12px 14px",marginBottom:14,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+            <div>
+              <div style={{fontWeight:800,fontSize:15}}>{selected.label}</div>
+              <div style={{color:getMuscleLabel(selected.count).color,fontWeight:700,fontSize:12,marginTop:2}}>{getMuscleLabel(selected.count).text}</div>
+            </div>
+            <button onClick={()=>setSelected(null)} style={{background:"none",border:"none",color:"#444",fontSize:18,cursor:"pointer"}}>✕</button>
+          </div>
+        )}
+
+        {/* Weekly summary grid */}
+        <div style={{fontSize:12,fontWeight:900,letterSpacing:".05em",color:"#888",marginBottom:10,textTransform:"uppercase"}}>Résumé cette semaine</div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6}}>
+          {[
+            {id:"chest",label:"Poitrine"},{id:"back",label:"Dos"},{id:"shoulders",label:"Épaules"},
+            {id:"biceps",label:"Biceps"},{id:"triceps",label:"Triceps"},{id:"abs",label:"Abdos"},
+            {id:"quads",label:"Quadriceps"},{id:"hamstrings",label:"Ischio"},{id:"glutes",label:"Fessiers"},
+            {id:"calves",label:"Mollets"},{id:"traps",label:"Trapèzes"},{id:"rear_delts",label:"Deltoïdes arr."},
+          ].map(({id,label})=>{
+            const count=muscleWork[id]||0;
+            const {color}=getStatusLabel(count);
             return(
-              <path key={i} d={m.d}
-                fill={col} fillOpacity={isActive?0.65:0}
-                stroke={isActive?col:"none"} strokeWidth="1"
-                style={{cursor:"pointer"}}
-                onClick={()=>setSelected({id:m.id,label:m.label,count:muscleWork[m.id]||0})}
-              />
+              <div key={id} style={{background:"#0D0D14",borderRadius:9,padding:"9px 11px",display:"flex",alignItems:"center",gap:9,border:`1px solid ${count>0?color+"33":"#1A1A24"}`}}>
+                <div style={{width:8,height:8,borderRadius:"50%",background:color,flexShrink:0,boxShadow:count>0?`0 0 6px ${color}88`:"none"}}/>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontWeight:700,fontSize:12}}>{label}</div>
+                  <div style={{color:"#444",fontSize:10,marginTop:1}}>{count===0?"Non travaillé":count===1?"1 exo":count===2?"2 exos":count+"+ exos"}</div>
+                </div>
+              </div>
             );
           })}
-        </svg>
-      </div>
-
-      {selected&&(
-        <div style={{background:"#0D0D14",border:`1px solid ${getMuscleLabel(selected.count).color}44`,borderRadius:12,padding:"12px 14px",marginBottom:14}}>
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-            <div style={{fontWeight:800,fontSize:15,color:"#F0F0F0"}}>{selected.label}</div>
-            <div style={{color:getMuscleLabel(selected.count).color,fontWeight:700,fontSize:12}}>{getMuscleLabel(selected.count).text}</div>
-          </div>
-          {selected.count===0&&<div style={{color:"#555",fontSize:12,marginTop:4,fontFamily:"'Barlow',sans-serif"}}>Pas travaillé cette semaine</div>}
         </div>
-      )}
-
-      <div style={{fontSize:13,fontWeight:800,marginBottom:8,color:"#E0E0E0"}}>RÉSUMÉ CETTE SEMAINE</div>
-      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6}}>
-        {[
-          {id:"chest",label:"Poitrine"},{id:"back",label:"Dos"},{id:"shoulders",label:"Épaules"},
-          {id:"biceps",label:"Biceps"},{id:"triceps",label:"Triceps"},{id:"abs",label:"Abdos"},
-          {id:"quads",label:"Quadriceps"},{id:"hamstrings",label:"Ischio"},{id:"glutes",label:"Fessiers"},
-          {id:"calves",label:"Mollets"},{id:"traps",label:"Trapèzes"},{id:"rear_delts",label:"Deltoïdes arr."},
-        ].map(({id,label})=>{
-          const count=muscleWork[id]||0;
-          const {color}=getStatusLabel(count);
-          return(
-            <div key={id} style={{background:"#0D0D14",borderRadius:9,padding:"8px 10px",display:"flex",alignItems:"center",gap:8,border:`1px solid ${count>0?color+"33":"#1A1A24"}`}}>
-              <div style={{width:8,height:8,borderRadius:"50%",background:color,flexShrink:0}}/>
-              <div style={{flex:1,minWidth:0}}>
-                <div style={{fontWeight:700,fontSize:12,color:"#E0E0E0"}}>{label}</div>
-                <div style={{color:"#555",fontSize:10}}>{count===0?"Non travaillé":count===1?"1 exo":count===2?"2 exos":count===3?"3 exos":count+" exos"}</div>
-              </div>
-            </div>
-          );
-        })}
       </div>
     </div>
   );
