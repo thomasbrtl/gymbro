@@ -201,6 +201,45 @@ const Avatar = ({val,fallback,size=36,border="#444",style:extraStyle={}}) => (
   </div>
 );
 
+// ══════════════════════ RANK BADGE SVG ══
+function RankBadge({tier, size=28, showLabel=false, label=""}) {
+  const cfgs = {
+    bronze:  {bg:"#2D1500",b1:"#CD7F32",b2:"#A0522D",txt:"B",shape:"hex"},
+    silver:  {bg:"#131320",b1:"#C0C0C0",b2:"#808080",txt:"A",shape:"shield"},
+    gold:    {bg:"#1F1200",b1:"#FFD700",b2:"#FFA500",txt:"O",shape:"shield"},
+    platinum:{bg:"#001520",b1:"#E5F4FB",b2:"#67E8F9",txt:"P",shape:"diamond"},
+    diamond: {bg:"#12002A",b1:"#C4B5FD",b2:"#7C3AED",txt:"D",shape:"diamond"},
+    emerald: {bg:"#001A10",b1:"#34D399",b2:"#059669",txt:"E",shape:"hex"},
+    elite:   {bg:"#200000",b1:"#FF6B6B",b2:"#CC0000",txt:"Ê",shape:"crown"},
+  };
+  const cfg = cfgs[tier] || cfgs.silver;
+  const s = size, h = size;
+  const shapes = {
+    hex:    `M${s/2},2 L${s-3},${h*0.26} L${s-3},${h*0.74} L${s/2},${h-2} L3,${h*0.74} L3,${h*0.26} Z`,
+    shield: `M${s/2},2 L${s-3},${h*0.28} L${s-3},${h*0.65} Q${s/2},${h-2} ${s/2},${h-2} Q${s/2},${h-2} 3,${h*0.65} L3,${h*0.28} Z`,
+    diamond:`M${s/2},2 L${s-2},${h/2} L${s/2},${h-2} L2,${h/2} Z`,
+    crown:  `M3,${h*0.72} L3,${h-3} L${s-3},${h-3} L${s-3},${h*0.72} L${s*0.78},${h*0.33} L${s/2},${h*0.53} L${s*0.22},${h*0.33} Z`,
+  };
+  const gid = `gb_${tier}_${size}`;
+  return (
+    <div style={{display:"inline-flex",flexDirection:"column",alignItems:"center",gap:2,flexShrink:0}}>
+      <svg width={s} height={h} viewBox={`0 0 ${s} ${h}`} style={{filter:`drop-shadow(0 0 ${s*0.13}px ${cfg.b1}55)`,display:"block"}}>
+        <defs>
+          <linearGradient id={`${gid}_b`} x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stopColor={cfg.b1}/><stop offset="100%" stopColor={cfg.b2}/>
+          </linearGradient>
+        </defs>
+        <path d={shapes[cfg.shape]} fill={cfg.bg} stroke={`url(#${gid}_b)`} strokeWidth="1.5"/>
+        <text x={s/2} y={h/2+0.5} textAnchor="middle" dominantBaseline="middle"
+          fill={cfg.b1} fontSize={s*0.36} fontWeight="900" fontFamily="'Barlow Condensed',sans-serif">
+          {cfg.txt}
+        </text>
+      </svg>
+      {showLabel && <span style={{fontSize:Math.max(8,size*0.28),fontWeight:800,color:cfg.b1,fontFamily:"'Barlow Condensed',sans-serif",letterSpacing:".04em",lineHeight:1,whiteSpace:"nowrap"}}>{label}</span>}
+    </div>
+  );
+}
+
 // ══════════════════════ CSS ══
 const CSS = `
 @import url('https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;600;700;800;900&family=Barlow:wght@400;500;600&display=swap');
@@ -220,26 +259,27 @@ html,body{background:#0A0A0F;font-family:'Barlow Condensed','Arial Narrow',sans-
 .su{animation:slideUp .28s ease both}
 .pi{animation:popIn .4s cubic-bezier(.34,1.56,.64,1) both}
 .rb{display:inline-flex;align-items:center;gap:3px;padding:2px 7px;border-radius:4px;font-size:10px;font-weight:700;letter-spacing:.04em;}
-.tab-b{flex:1;padding:9px 0;text-align:center;font-family:'Barlow Condensed',sans-serif;font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#555;background:none;border:none;cursor:pointer;border-bottom:2px solid transparent;transition:all .2s;}
-.tab-b.on{color:#FF3D3D;border-bottom-color:#FF3D3D;}
-.nav-i{flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;padding:7px 0 6px;cursor:pointer;background:none;border:none;}
-.inp{width:100%;padding:12px 14px;background:#13131A;border:1.5px solid #2A2A3A;border-radius:10px;color:#F0F0F0;font-family:'Barlow',sans-serif;font-size:14px;outline:none;transition:border-color .2s;}
-.inp:focus{border-color:#FF3D3D;}
-.inp::placeholder{color:#3A3A4A;}
+.tab-b{flex:1;padding:9px 0;text-align:center;font-family:'Barlow Condensed',sans-serif;font-size:12px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:#444;background:none;border:none;cursor:pointer;border-bottom:2px solid transparent;transition:all .2s;}
+.tab-b.on{color:#F0F0F0;border-bottom-color:#FF3D3D;}
+.nav-i{flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;padding:10px 0 5px;cursor:pointer;background:none;border:none;}
+.inp{width:100%;padding:12px 14px;background:#13131A;border:1.5px solid #1E1E2E;border-radius:10px;color:#F0F0F0;font-family:'Barlow',sans-serif;font-size:14px;outline:none;transition:border-color .2s;}
+.inp:focus{border-color:#FF3D3D55;}
+.inp::placeholder{color:#2A2A3A;}
 .inp.err{border-color:#FF3D3D88;background:#1A0D0D;}
-.btn-r{width:100%;padding:14px;background:linear-gradient(135deg,#FF3D3D,#FF6B00);border:none;color:#FFF;border-radius:11px;font-family:'Barlow Condensed',sans-serif;font-size:16px;font-weight:900;letter-spacing:.07em;cursor:pointer;transition:opacity .2s;}
+.btn-r{width:100%;padding:14px;background:linear-gradient(135deg,#FF3D3D,#CC2020);border:none;color:#FFF;border-radius:12px;font-family:'Barlow Condensed',sans-serif;font-size:16px;font-weight:900;letter-spacing:.07em;cursor:pointer;transition:opacity .2s;}
 .btn-r:disabled{opacity:.4;cursor:not-allowed;}
+.btn-r:active{opacity:.85;}
 .btn-g{padding:9px 14px;background:#1A1A24;border:1.5px solid #2A2A3A;color:#AAA;border-radius:9px;font-family:'Barlow Condensed',sans-serif;font-size:12px;font-weight:700;cursor:pointer;transition:all .2s;}
 .btn-g:hover{border-color:#444;color:#F0F0F0;}
 .card{background:#0D0D14;border-radius:14px;border:1px solid #1A1A24;}
-.modal-bg{position:fixed;inset:0;background:#000000E0;display:flex;align-items:flex-end;justify-content:center;z-index:400;animation:fadeIn .2s ease;}
+.modal-bg{position:fixed;inset:0;background:#000000E8;display:flex;align-items:flex-end;justify-content:center;z-index:400;animation:fadeIn .2s ease;}
 .modal-sheet{background:#0F0F18;border-radius:20px 20px 0 0;width:100%;max-width:430px;max-height:91vh;overflow-y:auto;padding:0 0 env(safe-area-inset-bottom,16px);animation:slideUp .3s ease;}
 .modal-center{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;z-index:500;padding:20px;animation:fadeIn .2s ease;}
 .modal-handle{width:36px;height:4px;background:#2A2A3A;border-radius:2px;margin:12px auto 14px;}
 .fullscreen{position:fixed;inset:0;background:#0A0A0F;z-index:300;overflow-y:auto;max-width:430px;left:50%;transform:translateX(-50%);}
-.glow{box-shadow:0 0 18px rgba(255,61,61,.22);}
+.glow{box-shadow:0 0 18px rgba(255,61,61,.18);}
 .pm-b{background:linear-gradient(135deg,#FFD700,#FF8C00);-webkit-background-clip:text;-webkit-text-fill-color:transparent;font-weight:800;}
-.ex-chip{padding:6px 12px;background:#13131A;border:1px solid #2A2A3A;border-radius:20px;font-size:12px;cursor:pointer;transition:all .2s;white-space:nowrap;font-family:'Barlow',sans-serif;color:#CCC;}
+.ex-chip{padding:6px 12px;background:#13131A;border:1px solid #1E1E2E;border-radius:20px;font-size:12px;cursor:pointer;transition:all .2s;white-space:nowrap;font-family:'Barlow',sans-serif;color:#CCC;}
 .ex-chip.sel{background:#FF3D3D22;border-color:#FF3D3D;color:#FF3D3D;}
 .set-row{display:flex;align-items:center;gap:7px;padding:8px 10px;background:#13131A;border-radius:8px;margin-bottom:5px;transition:all .2s;}
 .set-row.done{background:#0D1F18;opacity:.75;}
@@ -252,6 +292,8 @@ html,body{background:#0A0A0F;font-family:'Barlow Condensed','Arial Narrow',sans-
 .ps.dn{background:#FF3D3D88;}
 .notif-toast{position:fixed;top:env(safe-area-inset-top,0);left:50%;transform:translateX(-50%);z-index:600;pointer-events:none;width:calc(100% - 32px);max-width:390px;}
 .msg-b{max-width:75%;padding:9px 13px;border-radius:18px;font-size:13px;font-family:'Barlow',sans-serif;line-height:1.45;word-break:break-word;white-space:pre-wrap;}
+.pill{padding:5px 11px;border-radius:20px;border:1px solid #1A1A24;background:transparent;color:#444;font-family:'Barlow Condensed',sans-serif;font-size:11px;font-weight:800;cursor:pointer;letter-spacing:.04em;white-space:nowrap;transition:all .15s;flex-shrink:0;}
+.pill.on{border-color:#FF3D3D;background:#FF3D3D18;color:#FF6B6B;}
 `;
 
 // ══════════════════════ TOAST NOTIFICATION ══
@@ -746,17 +788,21 @@ function AppMain({appState,updateState,onLogout,overrides={}}){
     <div style={{fontFamily:"'Barlow Condensed','Arial Narrow',sans-serif",background:"#0A0A0F",color:"#F0F0F0",width:"100%",maxWidth:430,margin:"0 auto",minHeight:"100vh",position:"relative",overflowX:"hidden",letterSpacing:".02em"}}>
       <Toast toasts={toasts}/>
       {/* Header */}
-      <div style={{background:"linear-gradient(180deg,#0F0F16 0%,rgba(10,10,15,0) 100%)",padding:"env(safe-area-inset-top,12px) 16px 8px",paddingTop:"max(env(safe-area-inset-top,0px),12px)",display:"flex",alignItems:"center",justifyContent:"space-between",position:"sticky",top:0,zIndex:50}}>
-        <div style={{display:"flex",alignItems:"center",gap:5}}>
-          <span style={{fontSize:22,fontWeight:900,color:"#FF3D3D",letterSpacing:"-.02em"}}>GYM</span>
-          <span style={{fontSize:22,fontWeight:900,color:"#F0F0F0",letterSpacing:"-.02em"}}>BRO</span>
-          <span style={{fontSize:13}}>🏋️</span>
-        </div>
+      <div style={{background:"#0A0A0FEE",backdropFilter:"blur(14px)",padding:"max(env(safe-area-inset-top,0px),12px) 16px 8px",display:"flex",alignItems:"center",justifyContent:"space-between",position:"sticky",top:0,zIndex:50,borderBottom:"1px solid #1A1A24"}}>
         <div style={{display:"flex",alignItems:"center",gap:8}}>
-          <span className="rb" style={{background:rank.color+"22",color:rank.color,border:`1px solid ${rank.color}44`}}>{rank.icon} {rank.name}</span>
+          <span style={{fontSize:24,fontWeight:900,color:"#FF3D3D",letterSpacing:"-.01em",fontFamily:"'Barlow Condensed',sans-serif"}}>GYM</span>
+          <span style={{fontSize:24,fontWeight:900,color:"#F0F0F0",letterSpacing:"-.01em",fontFamily:"'Barlow Condensed',sans-serif"}}>BRO</span>
+        </div>
+        <div style={{display:"flex",alignItems:"center",gap:10}}>
+          <div style={{display:"flex",alignItems:"center",gap:6}}>
+            <RankBadge tier={rank.tier} size={24}/>
+            <span style={{fontSize:12,fontWeight:800,color:rank.color}}>{rank.name}</span>
+          </div>
           <div style={{position:"relative",cursor:"pointer"}} onClick={()=>setShowNotifs(true)}>
-            <div style={{width:30,height:30,borderRadius:"50%",background:"#1A1A24",border:"1.5px solid #2A2A3A",display:"flex",alignItems:"center",justifyContent:"center",fontSize:14}}>🔔</div>
-            <div style={{position:"absolute",top:2,right:2,width:8,height:8,borderRadius:"50%",background:"#FF3D3D",border:"2px solid #0A0A0F"}}/>
+            <div style={{width:32,height:32,borderRadius:10,background:"#13131A",border:"1px solid #1E1E2E",display:"flex",alignItems:"center",justifyContent:"center"}}>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#888" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+            </div>
+            <div style={{position:"absolute",top:3,right:3,width:7,height:7,borderRadius:"50%",background:"#FF3D3D",border:"2px solid #0A0A0F"}}/>
           </div>
         </div>
       </div>
@@ -772,11 +818,18 @@ function AppMain({appState,updateState,onLogout,overrides={}}){
       </div>
 
       {/* Nav */}
-      <div style={{position:"fixed",bottom:0,left:"50%",transform:"translateX(-50%)",width:"100%",maxWidth:430,background:"#0D0D14",borderTop:"1px solid #1A1A24",display:"flex",padding:`3px 0 calc(env(safe-area-inset-bottom,0px) + 4px)`,zIndex:100}}>
-        {[{id:"feed",icon:"🏠",label:"Feed"},{id:"messages",icon:"💬",label:"Messages"},{id:"program",icon:"📋",label:"Prog."},{id:"trophies",icon:"🏆",label:"Trophées"},{id:"ranked",icon:"⚡",label:"Ranked"},{id:"profile",icon:"👤",label:"Profil"}].map(n=>(
+      <div style={{position:"fixed",bottom:0,left:"50%",transform:"translateX(-50%)",width:"100%",maxWidth:430,background:"#0A0A0F",borderTop:"1px solid #1A1A24",display:"flex",padding:`0 0 calc(env(safe-area-inset-bottom,0px) + 4px)`,zIndex:100}}>
+        {[
+          {id:"feed",    label:"Feed",     icon:(a)=><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={a?"#FF3D3D":"#555"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>},
+          {id:"messages",label:"Messages", icon:(a)=><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={a?"#FF3D3D":"#555"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>},
+          {id:"program", label:"Séance",   icon:(a)=><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={a?"#FF3D3D":"#555"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>},
+          {id:"trophies",label:"Trophées", icon:(a)=><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={a?"#FF3D3D":"#555"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="8 17 12 21 16 17"/><line x1="12" y1="12" x2="12" y2="21"/><path d="M20.88 18.09A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.29"/></svg>},
+          {id:"ranked",  label:"Ranked",   icon:(a)=><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={a?"#FF3D3D":"#555"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg>},
+          {id:"profile", label:"Profil",   icon:(a)=><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={a?"#FF3D3D":"#555"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>},
+        ].map(n=>(
           <button key={n.id} className="nav-i" onClick={()=>setTab(n.id)}>
-            <div style={{fontSize:18,filter:tab===n.id?"none":"grayscale(.7) opacity(.5)",transition:"all .2s"}}>{n.icon}</div>
-            <div style={{fontSize:8,fontWeight:700,color:tab===n.id?"#FF3D3D":"#444",letterSpacing:".04em",textTransform:"uppercase"}}>{n.label}</div>
+            {n.icon(tab===n.id)}
+            <div style={{fontSize:8,fontWeight:800,color:tab===n.id?"#FF3D3D":"#444",letterSpacing:".04em",textTransform:"uppercase"}}>{n.label}</div>
           </button>
         ))}
       </div>
@@ -873,17 +926,19 @@ function FeedTab({appState,updateState,addPost,onOpenProfile,toggleLike,addComme
     <div>
       <div style={{padding:"8px 14px 6px",borderBottom:"1px solid #1A1A24"}}>
         <div style={{position:"relative",marginBottom:8}}>
-          <span style={{position:"absolute",left:11,top:"50%",transform:"translateY(-50%)",fontSize:13,color:"#444",pointerEvents:"none"}}>🔍</span>
-          <input className="inp" placeholder="#tags, mots-clés, @utilisateurs..." value={search} onChange={e=>setSearch(e.target.value)} style={{paddingLeft:32,fontSize:12,padding:"9px 12px 9px 30px"}}/>
+          <span style={{position:"absolute",left:11,top:"50%",transform:"translateY(-50%)",pointerEvents:"none"}}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#444" strokeWidth="2.5" strokeLinecap="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+          </span>
+          <input className="inp" placeholder="#tags, @utilisateurs..." value={search} onChange={e=>setSearch(e.target.value)} style={{paddingLeft:32,fontSize:13,padding:"9px 12px 9px 30px"}}/>
         </div>
         <div style={{display:"flex"}}>
           <button className={`tab-b ${feedTab==="following"?"on":""}`} onClick={()=>setFeedTab("following")}>Abonnements</button>
           <button className={`tab-b ${feedTab==="discover"?"on":""}`} onClick={()=>setFeedTab("discover")}>Découvrir</button>
         </div>
       </div>
-      <div style={{padding:"6px 14px",display:"flex",gap:5,overflowX:"auto"}}>
-        {[["all","Tous"],["silver","🥈"],["gold","🥇"],["platinum","💎"],["diamond","🔷"],["emerald","💚"],["elite","🔥"]].map(([v,l])=>(
-          <button key={v} onClick={()=>setRankFilter(v)} style={{padding:"4px 10px",borderRadius:20,background:rankFilter===v?"#FF3D3D":"#1A1A24",border:rankFilter===v?"none":"1px solid #2A2A3A",color:"#F0F0F0",fontSize:11,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap",fontFamily:"inherit"}}>{l}</button>
+      <div style={{padding:"8px 0 6px",display:"flex",gap:5,overflowX:"auto",paddingLeft:14,paddingRight:14}}>
+        {[["all","Tous"],["silver","Argent"],["gold","Or"],["platinum","Platine"],["diamond","Diamant"],["emerald","Émeraude"],["elite","Élite"]].map(([v,l])=>(
+          <button key={v} className={`pill${rankFilter===v?" on":""}`} onClick={()=>setRankFilter(v)}>{l.toUpperCase()}</button>
         ))}
       </div>
       <div style={{padding:"4px 14px"}}>
@@ -944,11 +999,16 @@ function PostCard({post,i,onProfile,toggleLike,onComment,following,toggleFollow,
         <div style={{display:"flex",alignItems:"center",gap:9,cursor:"pointer",flex:1,minWidth:0}} onClick={onProfile}>
           <Avatar val={post.avatarVal||""} fallback={post.avatarFallback||"👤"} size={36} border={(post.rankColor||"#444")+"77"}/>
           <div style={{minWidth:0}}>
-            <div style={{fontWeight:700,fontSize:13,display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
+            <div style={{fontWeight:800,fontSize:14,display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
               <span>@{post.pseudo}</span>
-              <span className="rb" style={{background:(post.rankColor||"#444")+"22",color:post.rankColor||"#888",fontSize:9}}>{post.rankIcon||"🥈"} {post.rankName||"Silver I"}</span>
+              {post.isInfluencer&&<span style={{background:"#FF3D3D1A",color:"#FF6B6B",fontSize:9,fontWeight:800,padding:"2px 5px",borderRadius:4,letterSpacing:".04em"}}>✓ PRO</span>}
             </div>
-            <div style={{color:"#444",fontSize:11}}>{timeSince(post.ts)}</div>
+            <div style={{display:"flex",alignItems:"center",gap:5,marginTop:2}}>
+              <RankBadge tier={post.rankTier||"silver"} size={14}/>
+              <span style={{fontSize:11,color:post.rankColor||"#888",fontWeight:700}}>{post.rankName||"Silver I"}</span>
+              <span style={{color:"#222",fontSize:10}}>·</span>
+              <span style={{fontSize:11,color:"#444"}}>{timeSince(post.ts)}</span>
+            </div>
           </div>
         </div>
         {!isMe&&<button onClick={e=>{e.stopPropagation();toggleFollow();}} style={{background:isFollowing?"#1A1A24":"#FF3D3D22",border:`1px solid ${isFollowing?"#333":"#FF3D3D66"}`,color:isFollowing?"#888":"#FF3D3D",padding:"4px 10px",borderRadius:20,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit",flexShrink:0,marginLeft:6}}>{isFollowing?"✓ Suivi":"+Follow"}</button>}
@@ -1063,9 +1123,14 @@ function FullUserProfile({post,posts,following,toggleFollow,onClose,onMessage,my
   return(
     <div className="fullscreen" style={{overflowY:"auto",WebkitOverflowScrolling:"touch"}}>
       <div style={{display:"flex",alignItems:"center",gap:12,padding:"max(env(safe-area-inset-top,0px),14px) 16px 10px",borderBottom:"1px solid #1A1A24",background:"#0A0A0F",position:"sticky",top:0,zIndex:10}}>
-        <button onClick={onClose} style={{background:"none",border:"none",color:"#888",fontSize:22,cursor:"pointer",lineHeight:1}}>←</button>
+        <button onClick={onClose} style={{background:"none",border:"none",color:"#888",fontSize:22,cursor:"pointer",lineHeight:1,display:"flex",alignItems:"center"}}>
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+        </button>
         <div style={{fontSize:16,fontWeight:900}}>@{post.pseudo}</div>
-        <span className="rb" style={{background:rank.color+"22",color:rank.color}}>{rank.icon} {rank.name}</span>
+        <div style={{display:"flex",alignItems:"center",gap:6,marginLeft:4}}>
+          <RankBadge tier={rank.tier} size={20}/>
+          <span style={{fontSize:12,fontWeight:800,color:rank.color}}>{rank.name}</span>
+        </div>
       </div>
       <div style={{padding:"16px 16px 80px"}}>
         <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",marginBottom:12}}>
@@ -2068,12 +2133,16 @@ function RankedTab({appState,updateState,rank,nextRank,rankPct,stats,giveXP}){
   return(
     <div style={{padding:"14px 14px"}}>
       {/* Rank card — clickable to show rank path */}
-      <div onClick={()=>setShowRankPath(true)} style={{background:`linear-gradient(135deg,${rank.color}22 0%,#0D0D14 60%)`,border:`1px solid ${rank.color}44`,borderRadius:15,padding:16,marginBottom:16,position:"relative",overflow:"hidden",cursor:"pointer"}} className="glow">
-        <div style={{position:"absolute",top:-12,right:-12,fontSize:65,opacity:.07}}>{rank.icon}</div>
-        <div style={{color:rank.color,fontSize:10,fontWeight:700,letterSpacing:".1em",textTransform:"uppercase",marginBottom:2}}>Rang actuel · Touche pour voir la progression</div>
-        <div style={{fontSize:36,fontWeight:900,color:rank.color,lineHeight:1}}>{rank.icon} {rank.name.toUpperCase()}</div>
-        <div style={{color:"#666",fontSize:12,marginTop:4,fontFamily:"'Barlow',sans-serif"}}>{stats.points.toLocaleString()} XP</div>
-        {nextRank&&<div style={{marginTop:12}}><div style={{display:"flex",justifyContent:"space-between",fontSize:10,marginBottom:4}}><span style={{color:"#555"}}>{rank.name}</span><span style={{color:nextRank.color,fontWeight:700}}>{nextRank.name} — {(nextRank.min-stats.points).toLocaleString()} XP</span></div><div style={{height:4,background:"#1A1A24",borderRadius:3,overflow:"hidden"}}><div style={{height:"100%",width:`${rankPct}%`,background:`linear-gradient(90deg,${rank.color},${nextRank.color})`,borderRadius:3}}/></div></div>}
+      <div onClick={()=>setShowRankPath(true)} style={{background:`linear-gradient(135deg,${rank.color}18 0%,#0D0D1400 60%)`,border:`1px solid ${rank.color}44`,borderRadius:16,padding:16,marginBottom:16,position:"relative",overflow:"hidden",cursor:"pointer"}} className="glow">
+        <div style={{display:"flex",alignItems:"center",gap:14,marginBottom:10}}>
+          <RankBadge tier={rank.tier} size={52} showLabel label={rank.name}/>
+          <div>
+            <div style={{fontSize:22,fontWeight:900,color:"#F0F0F0"}}>@{appState.user.pseudo}</div>
+            <div style={{color:rank.color,fontWeight:800,fontSize:14,marginTop:2}}>{stats.points.toLocaleString()} XP</div>
+          </div>
+        </div>
+        {nextRank&&<div style={{marginTop:8}}><div style={{display:"flex",justifyContent:"space-between",fontSize:10,marginBottom:4}}><span style={{color:"#444"}}>{rank.name}</span><span style={{color:nextRank.color,fontWeight:700}}>{nextRank.name} — {(nextRank.min-stats.points).toLocaleString()} XP</span></div><div style={{height:4,background:"#1A1A2444",borderRadius:3,overflow:"hidden"}}><div style={{height:"100%",width:`${rankPct}%`,background:`linear-gradient(90deg,${rank.color},${nextRank.color})`,borderRadius:3}}/></div></div>}
+        <div style={{color:"#444",fontSize:10,marginTop:6,fontFamily:"'Barlow',sans-serif"}}>Touche pour voir la progression</div>
       </div>
 
       {/* ══ WEEKLY CHALLENGES ══ */}
@@ -2148,8 +2217,11 @@ function RankedTab({appState,updateState,rank,nextRank,rankPct,stats,giveXP}){
               :<span>{e.av}</span>}
           </div>
           <div style={{flex:1,minWidth:0}}>
-            <div style={{fontWeight:700,fontSize:12,color:"#F0F0F0"}}>@{e.u}{e.me&&<span style={{color:"#FF3D3D",fontSize:9,marginLeft:4}}>(toi)</span>}</div>
-            <span className="rb" style={{background:e.r.color+"22",color:e.r.color,fontSize:8}}>{e.r.icon} {e.r.name}</span>
+            <div style={{fontWeight:700,fontSize:13,color:"#F0F0F0"}}>@{e.u}{e.me&&<span style={{color:"#FF3D3D",fontSize:9,marginLeft:4}}>(toi)</span>}</div>
+            <div style={{display:"flex",alignItems:"center",gap:4,marginTop:1}}>
+              <RankBadge tier={e.r.tier} size={14}/>
+              <span style={{fontSize:10,color:e.r.color,fontWeight:700}}>{e.r.name}</span>
+            </div>
           </div>
           <div style={{fontWeight:800,color:e.r.color,fontSize:13}}>{e.pts.toLocaleString()}</div>
         </div>
@@ -2329,7 +2401,13 @@ function ProfileTab({appState,updateState,rank,imc,av,onEdit,onLogout,posts,chec
           <button onClick={onLogout} style={{background:"#1A0A0A",border:"1px solid #FF3D3D33",color:"#FF6060",padding:"7px 10px",borderRadius:9,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>Déco.</button>
         </div>
       </div>
-      <div style={{marginBottom:4}}><div style={{fontSize:19,fontWeight:900}}>@{user.pseudo}</div><span className="rb" style={{background:rank.color+"22",color:rank.color,marginTop:3,display:"inline-flex"}}>{rank.icon} {rank.name} · {stats.points.toLocaleString()} XP</span></div>
+      <div style={{marginBottom:4}}>
+        <div style={{fontSize:22,fontWeight:900,marginBottom:4}}>@{user.pseudo}</div>
+        <div style={{display:"flex",alignItems:"center",gap:8,marginTop:3}}>
+          <RankBadge tier={rank.tier} size={26} showLabel label={rank.name}/>
+          <span style={{fontSize:14,fontWeight:800,color:rank.color}}>{stats.points.toLocaleString()} XP</span>
+        </div>
+      </div>
       {user.bio&&<div style={{color:"#888",fontSize:12,fontFamily:"'Barlow',sans-serif",marginBottom:6,lineHeight:1.4,marginTop:5}}>{user.bio}</div>}
       <div style={{color:"#555",fontSize:11,fontFamily:"'Barlow',sans-serif",marginBottom:12,marginTop:4}}>{user.age} ans · {user.sexe} · {user.poids}kg · {user.taille}cm{imc?` · IMC ${imc}`:""}</div>
 
