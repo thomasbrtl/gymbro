@@ -456,7 +456,8 @@ function SupabaseBridge({ callbacks, externalAppState, isAuthenticated, external
   if (isAuthenticated && externalAppState) {
     const { onSignUp, onSignIn, onLogout, addPost, toggleLike, addComment,
             toggleFollow, sendMessage, updateProfile, saveSession,
-            updatePrograms, updatePinnedTrophies, updateTrophyDate, updateCountry } = callbacks;
+            updatePrograms, updatePinnedTrophies, updateTrophyDate, updateCountry,
+            createChallenge, respondChallenge, deleteChallenge } = callbacks;
 
     // externalAppState already contains fresh localData (programs/exercises/sessionHistory)
     // because App.jsx builds appState from its own localData state.
@@ -500,6 +501,9 @@ function SupabaseBridge({ callbacks, externalAppState, isAuthenticated, external
           sendMessage,
           saveSession: wrappedSaveSession,
           updateProfile,
+          createChallenge,
+          respondChallenge,
+          deleteChallenge,
           deletePost: async (postId)=>{
             try{
               const {supabase:sb}=await import('./supabase.js');
@@ -810,7 +814,7 @@ function AppMain({appState,updateState,onLogout,overrides={}}){
       {/* Content */}
       <div className="sa" style={{height:"calc(100vh - 56px - env(safe-area-inset-top,0px) - env(safe-area-inset-bottom,0px) - 56px)",paddingBottom:16}}>
         {tab==="feed"     && <FeedTab appState={appState} updateState={updateState} addPost={addPost} onOpenProfile={p=>setViewProfile(p)} toggleLike={toggleLike} addComment={addComment} toggleFollow={toggleFollow} following={following} av={av} myPseudo={user.pseudo} myAvatarVal={user.avatar||""}/>}
-        {tab==="messages" && <MessagesTab conversations={conversations} user={user} av={av} updateState={updateState} appState={appState}/>}
+        {tab==="messages" && <MessagesTab conversations={conversations} user={user} av={av} updateState={updateState} appState={appState} overrides={overrides} onOpenProfile={p=>setViewProfile(p)}/>}
         {tab==="program"  && <ProgramTab appState={appState} updateState={updateState} saveSession={saveSession}/>}
         {tab==="trophies" && <TrophiesTab stats={stats} user={user} updateState={updateState}/>}
         {tab==="ranked"   && <RankedTab appState={{...appState,_openProfile:(p)=>setViewProfile(p)}} updateState={updateState} rank={rank} nextRank={nextRank} rankPct={rankPct} stats={stats}/>}
@@ -1219,14 +1223,29 @@ function FullUserProfile({post,posts,following,toggleFollow,onClose,onMessage,my
 }
 
 
+
+// ══════════════════════ DEFI PRESETS ══
+const DEFI_PRESETS = [
+  {id:"pr_bench",    icon:"🏋️", title:"PR Développé couché",   desc:"Le plus gros PR au bench en 2 semaines",   type:"pr",       exercise:"Développé couché",    unit:"kg",     durationDays:14},
+  {id:"pr_squat",    icon:"🦵", title:"PR Squat",               desc:"Le plus gros PR au squat en 2 semaines",   type:"pr",       exercise:"Squat",                unit:"kg",     durationDays:14},
+  {id:"pr_deadlift", icon:"💀", title:"PR Soulevé de terre",    desc:"Le plus gros PR au deadlift en 2 semaines",type:"pr",       exercise:"Soulevé de terre",     unit:"kg",     durationDays:14},
+  {id:"pr_ohp",      icon:"🔝", title:"PR Développé militaire", desc:"Le plus gros PR au OHP en 2 semaines",     type:"pr",       exercise:"Développé militaire",  unit:"kg",     durationDays:14},
+  {id:"sessions",    icon:"🔥", title:"Plus de séances",        desc:"Qui fait le plus de séances cette semaine",type:"sessions", exercise:null,                   unit:"séances",durationDays:7},
+  {id:"volume",      icon:"📊", title:"Volume total",           desc:"Qui soulève le plus de kg au total",       type:"volume",   exercise:null,                   unit:"kg",     durationDays:7},
+  {id:"streak",      icon:"⚡", title:"Streak — tiens bon",     desc:"Premier à louper une séance a perdu",      type:"streak",   exercise:null,                   unit:"jours",  durationDays:7},
+];
+
 // ══════════════════════ MESSAGES ══
-function MessagesTab({conversations,user,av,updateState,appState}){
+function MessagesTab({conversations,user,av,updateState,appState,overrides,onOpenProfile}){
   const [openConv,setOpenConv]=useState(null);
   const [msgSubTab,setMsgSubTab]=useState("messages");
   const [msgText,setMsgText]=useState("");
+  const [showDefiModal,setShowDefiModal]=useState(null);
+  const [selPreset,setSelPreset]=useState(null);
   const endRef=useRef(null);
   const conv=openConv?conversations?.find(c=>c.id===openConv):null;
   useEffect(()=>{if(conv&&endRef.current)endRef.current.scrollIntoView({behavior:"smooth"});},[conv,conversations]);
+
   const sendMsg=()=>{
     if(!msgText.trim()||!conv)return;
     const text=msgText.trim(); setMsgText("");
@@ -1234,10 +1253,40 @@ function MessagesTab({conversations,user,av,updateState,appState}){
       const convs=(s.conversations||[]).map(cv=>cv.id!==conv.id?cv:{...cv,messages:[...cv.messages,{id:genId(),from:"me",text,ts:Date.now()}]});
       return {conversations:convs};
     });
-    if(conv.withId && conv.withId !== "me"){
+    if(conv.withId&&conv.withId!=="me"){
       window.dispatchEvent(new CustomEvent("gymbro_sendmsg",{detail:{toId:conv.withId,toPseudo:conv.withPseudo,avatarVal:conv.avatarVal||"",avatarFb:conv.avatarFallback||"👤",text}}));
     }
   };
+
+  const launchDefi=async()=>{
+    if(!selPreset||!showDefiModal||!overrides?.createChallenge)return;
+    try{
+      await overrides.createChallenge({opponentId:showDefiModal.uid,type:selPreset.type,exercise:selPreset.exercise,title:selPreset.title,durationDays:selPreset.durationDays});
+      setShowDefiModal(null);setSelPreset(null);
+    }catch(e){console.error("createChallenge:",e);}
+  };
+
+  const challenges=appState?.challenges||[];
+  // derive myId from supabase session if possible — fallback to matching pseudo
+  const myPseudoLocal=user?.pseudo||"";
+  const pendingChallenges=challenges.filter(c=>c.status==="pending"&&c.opponentPseudo===myPseudoLocal);
+  const activeChallenges=challenges.filter(c=>c.status==="active");
+  const doneChallenges=challenges.filter(c=>c.status==="finished"||c.status==="declined").slice(0,5);
+
+  const timeLeft=(endDateStr)=>{
+    const ms=new Date(endDateStr).getTime()-Date.now();
+    if(ms<=0)return"Terminé";
+    const d=Math.floor(ms/86400000);
+    const h=Math.floor((ms%86400000)/3600000);
+    return d>0?`${d}j ${h}h`:`${h}h`;
+  };
+
+  const unitLabel=(type)=>{
+    if(type==="pr"||type==="volume")return"kg";
+    if(type==="sessions")return"séances";
+    return"j";
+  };
+
   if(openConv&&conv){
     return(
       <div style={{display:"flex",flexDirection:"column",height:"calc(100vh - 56px - env(safe-area-inset-top,0px) - env(safe-area-inset-bottom,0px) - 56px)"}}>
@@ -1267,16 +1316,25 @@ function MessagesTab({conversations,user,av,updateState,appState}){
       </div>
     );
   }
-  const following = appState?.following || [];
+
+  const following=appState?.following||[];
   return(
     <div>
+      {/* Header */}
       <div style={{padding:"16px 16px 0",borderBottom:"1px solid #1A1A24",background:"#0A0A0FEE",backdropFilter:"blur(14px)",position:"sticky",top:0,zIndex:10}}>
         <div style={{fontSize:26,fontWeight:900,marginBottom:12}}>Messages</div>
         <div style={{display:"flex"}}>
           <button className={`tab-b ${msgSubTab==="messages"?"on":""}`} onClick={()=>setMsgSubTab("messages")}>MESSAGES</button>
-          <button className={`tab-b ${msgSubTab==="amis"?"on":""}`} onClick={()=>setMsgSubTab("amis")}>AMIS</button>
+          <button className={`tab-b ${msgSubTab==="amis"?"on":""}`} onClick={()=>setMsgSubTab("amis")}>
+            AMIS {pendingChallenges.length>0&&<span style={{background:"#FF3D3D",color:"#FFF",borderRadius:"50%",width:16,height:16,display:"inline-flex",alignItems:"center",justifyContent:"center",fontSize:9,fontWeight:900,marginLeft:4}}>{pendingChallenges.length}</span>}
+          </button>
+          <button className={`tab-b ${msgSubTab==="defis"?"on":""}`} onClick={()=>setMsgSubTab("defis")}>
+            DÉFIS {activeChallenges.length>0&&<span style={{background:"#FBBF24",color:"#000",borderRadius:"50%",width:16,height:16,display:"inline-flex",alignItems:"center",justifyContent:"center",fontSize:9,fontWeight:900,marginLeft:4}}>{activeChallenges.length}</span>}
+          </button>
         </div>
       </div>
+
+      {/* MESSAGES */}
       {msgSubTab==="messages"&&(
         <div style={{padding:"0 14px"}}>
           {(!conversations||conversations.length===0)
@@ -1301,11 +1359,27 @@ function MessagesTab({conversations,user,av,updateState,appState}){
           }
         </div>
       )}
+
+      {/* AMIS */}
       {msgSubTab==="amis"&&(
         <div style={{padding:"12px 14px"}}>
-          <div style={{fontSize:12,color:"#444",fontFamily:"'Barlow',sans-serif",marginBottom:14,lineHeight:1.5}}>
-            Les personnes que tu suis. Lance un défi ou envoie un message directement.
-          </div>
+          {/* Invitations de défis reçues */}
+          {pendingChallenges.length>0&&(
+            <div style={{marginBottom:16}}>
+              <div style={{fontSize:11,fontWeight:900,color:"#FF3D3D",letterSpacing:".06em",textTransform:"uppercase",marginBottom:8}}>⚡ Défis reçus</div>
+              {pendingChallenges.map(ch=>(
+                <div key={ch.id} style={{background:"#1A0A0A",border:"1px solid #FF3D3D44",borderRadius:12,padding:"12px 14px",marginBottom:8}}>
+                  <div style={{fontWeight:800,fontSize:14,marginBottom:2}}>@{ch.challengerPseudo} te défie !</div>
+                  <div style={{color:"#888",fontSize:12,fontFamily:"'Barlow',sans-serif",marginBottom:10}}>{ch.title}</div>
+                  <div style={{display:"flex",gap:8}}>
+                    <button onClick={()=>overrides?.respondChallenge(ch.id,true)} style={{flex:1,background:"linear-gradient(135deg,#FF3D3D,#CC2020)",border:"none",color:"#FFF",borderRadius:9,padding:"9px 0",fontFamily:"'Barlow Condensed',sans-serif",fontSize:13,fontWeight:800,cursor:"pointer",letterSpacing:".04em"}}>✓ ACCEPTER</button>
+                    <button onClick={()=>overrides?.respondChallenge(ch.id,false)} style={{flex:1,background:"#1A1A24",border:"1px solid #2A2A3A",color:"#666",borderRadius:9,padding:"9px 0",fontFamily:"'Barlow Condensed',sans-serif",fontSize:13,fontWeight:700,cursor:"pointer"}}>Refuser</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
           {following.length===0
             ?<div style={{textAlign:"center",padding:"56px 20px",color:"#444"}}>
                <div style={{fontSize:44,marginBottom:10}}>👥</div>
@@ -1317,19 +1391,22 @@ function MessagesTab({conversations,user,av,updateState,appState}){
               const pseudo=c?.withPseudo||uid;
               const avatarVal=c?.avatarVal||"";
               const avatarFb=c?.avatarFallback||"👤";
+              const profileObj={userId:uid,pseudo,avatarVal,avatarFallback:avatarFb,rankName:"",rankColor:"#888",rankTier:"silver",points:0};
               return(
                 <div key={uid} style={{display:"flex",alignItems:"center",gap:12,padding:"12px 0",borderBottom:"1px solid #1A1A24"}}>
-                  <Avatar val={avatarVal} fallback={avatarFb} size={44} border="#2A2A3A"/>
-                  <div style={{flex:1,minWidth:0}}>
-                    <div style={{fontWeight:800,fontSize:15}}>@{pseudo}</div>
-                    <div style={{fontSize:11,color:"#444",marginTop:2}}>Abonné</div>
+                  <div onClick={()=>onOpenProfile&&onOpenProfile(profileObj)} style={{cursor:"pointer",flexShrink:0}}>
+                    <Avatar val={avatarVal} fallback={avatarFb} size={46} border="#2A2A3A"/>
                   </div>
-                  <div style={{display:"flex",gap:7}}>
-                    <button onClick={()=>{if(c)setOpenConv(c.id);}} style={{background:"#FF3D3D14",border:"1px solid #FF3D3D44",color:"#FF6B6B",borderRadius:9,padding:"7px 12px",fontFamily:"'Barlow Condensed',sans-serif",fontSize:12,fontWeight:800,cursor:"pointer"}}>
-                      Message
+                  <div style={{flex:1,minWidth:0,cursor:"pointer"}} onClick={()=>onOpenProfile&&onOpenProfile(profileObj)}>
+                    <div style={{fontWeight:800,fontSize:15}}>@{pseudo}</div>
+                    <div style={{fontSize:11,color:"#555",marginTop:2,fontFamily:"'Barlow',sans-serif"}}>voir profil →</div>
+                  </div>
+                  <div style={{display:"flex",gap:7,flexShrink:0}}>
+                    <button onClick={()=>{if(c)setOpenConv(c.id);}} style={{background:"#13131A",border:"1px solid #1E1E2E",color:"#888",borderRadius:9,padding:"8px 10px",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>
+                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
                     </button>
-                    <button style={{background:"#1A1A24",border:"1px solid #2A2A3A",color:"#888",borderRadius:9,padding:"7px 10px",fontFamily:"'Barlow Condensed',sans-serif",fontSize:12,fontWeight:800,cursor:"pointer"}}>
-                      ⚡ Défi
+                    <button onClick={()=>setShowDefiModal({uid,pseudo,avatarVal,avatarFb})} style={{background:"#FF3D3D14",border:"1px solid #FF3D3D44",color:"#FF6B6B",borderRadius:9,padding:"7px 12px",fontFamily:"'Barlow Condensed',sans-serif",fontSize:12,fontWeight:800,cursor:"pointer",letterSpacing:".04em"}}>
+                      ⚡ DÉFI
                     </button>
                   </div>
                 </div>
@@ -1338,9 +1415,129 @@ function MessagesTab({conversations,user,av,updateState,appState}){
           }
         </div>
       )}
+
+      {/* DÉFIS */}
+      {msgSubTab==="defis"&&(
+        <div style={{padding:"12px 14px"}}>
+          {activeChallenges.length===0&&doneChallenges.length===0
+            ?<div style={{textAlign:"center",padding:"56px 20px",color:"#444"}}>
+               <div style={{fontSize:44,marginBottom:10}}>⚡</div>
+               <div style={{fontSize:16,fontWeight:800,marginBottom:5}}>Aucun défi en cours</div>
+               <div style={{fontSize:12,color:"#333",fontFamily:"'Barlow',sans-serif"}}>Lance un défi depuis l'onglet Amis</div>
+             </div>
+            :null
+          }
+          {activeChallenges.length>0&&(
+            <div style={{marginBottom:16}}>
+              <div style={{fontSize:11,fontWeight:900,color:"#FBBF24",letterSpacing:".06em",textTransform:"uppercase",marginBottom:8}}>🔥 En cours</div>
+              {activeChallenges.map(ch=>{
+                const amChallenger=ch.challengerPseudo===myPseudoLocal;
+                const myScore=amChallenger?ch.challengerScore:ch.opponentScore;
+                const theirScore=amChallenger?ch.opponentScore:ch.challengerScore;
+                const theirPseudo=amChallenger?ch.opponentPseudo:ch.challengerPseudo;
+                const theirAvatar=amChallenger?ch.opponentAvatar:ch.challengerAvatar;
+                const isWinning=myScore>=theirScore;
+                const total=myScore+theirScore||1;
+                const myPct=Math.round((myScore/total)*100);
+                return(
+                  <div key={ch.id} style={{background:"#0D0D14",border:"1px solid #FBBF2433",borderRadius:14,padding:"14px",marginBottom:10}}>
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:10}}>
+                      <div>
+                        <div style={{fontWeight:900,fontSize:15}}>{ch.title}</div>
+                        <div style={{color:"#555",fontSize:11,fontFamily:"'Barlow',sans-serif",marginTop:2}}>⏱ {timeLeft(ch.endDate)}</div>
+                      </div>
+                      <button onClick={()=>overrides?.deleteChallenge(ch.id)} style={{background:"none",border:"none",color:"#333",cursor:"pointer",fontSize:16,lineHeight:1}}>✕</button>
+                    </div>
+                    <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:10}}>
+                      <div style={{flex:1,textAlign:"center"}}>
+                        <Avatar val={user?.avatar||""} fallback={av} size={40} border={isWinning?"#22C55E":"#2A2A3A"}/>
+                        <div style={{fontSize:11,fontWeight:800,marginTop:4,color:isWinning?"#22C55E":"#F0F0F0"}}>@{myPseudoLocal}</div>
+                        <div style={{fontSize:26,fontWeight:900,color:isWinning?"#22C55E":"#F0F0F0",lineHeight:1.2}}>{myScore}</div>
+                        <div style={{fontSize:10,color:"#444"}}>{unitLabel(ch.type)}</div>
+                      </div>
+                      <div style={{fontSize:13,fontWeight:900,color:"#333",flexShrink:0}}>VS</div>
+                      <div style={{flex:1,textAlign:"center"}}>
+                        <Avatar val={theirAvatar} fallback="👤" size={40} border={!isWinning?"#FF3D3D":"#2A2A3A"}/>
+                        <div style={{fontSize:11,fontWeight:800,marginTop:4,color:!isWinning?"#FF6060":"#888"}}>@{theirPseudo}</div>
+                        <div style={{fontSize:26,fontWeight:900,color:!isWinning?"#FF6060":"#888",lineHeight:1.2}}>{theirScore}</div>
+                        <div style={{fontSize:10,color:"#444"}}>{unitLabel(ch.type)}</div>
+                      </div>
+                    </div>
+                    <div style={{height:5,background:"#1A1A24",borderRadius:3,overflow:"hidden"}}>
+                      <div style={{height:"100%",width:`${myPct}%`,background:isWinning?"#22C55E":"#FF3D3D",borderRadius:3,transition:"width .5s"}}/>
+                    </div>
+                    <div style={{display:"flex",justifyContent:"space-between",marginTop:4,fontSize:10,color:"#444"}}>
+                      <span>{myPct}%</span><span>{100-myPct}%</span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+          {doneChallenges.length>0&&(
+            <div>
+              <div style={{fontSize:11,fontWeight:900,color:"#444",letterSpacing:".06em",textTransform:"uppercase",marginBottom:8}}>Terminés</div>
+              {doneChallenges.map(ch=>{
+                const amChallenger=ch.challengerPseudo===myPseudoLocal;
+                const iWon=amChallenger?ch.challengerScore>ch.opponentScore:ch.opponentScore>ch.challengerScore;
+                const isDraw=ch.challengerScore===ch.opponentScore;
+                const theirPseudo=amChallenger?ch.opponentPseudo:ch.challengerPseudo;
+                return(
+                  <div key={ch.id} style={{background:"#0D0D14",border:`1px solid ${iWon?"#22C55E33":isDraw?"#FBBF2433":"#FF3D3D22"}`,borderRadius:12,padding:"12px 14px",marginBottom:8,display:"flex",alignItems:"center",gap:12}}>
+                    <div style={{fontSize:28,flexShrink:0}}>{iWon?"🏆":isDraw?"🤝":"😤"}</div>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{fontWeight:800,fontSize:13}}>{ch.title}</div>
+                      <div style={{fontSize:12,color:iWon?"#22C55E":isDraw?"#FBBF24":"#FF6060",fontWeight:700,marginTop:2}}>
+                        {iWon?"Victoire 🎉":isDraw?"Égalité":"Défaite"} vs @{theirPseudo}
+                      </div>
+                    </div>
+                    <button onClick={()=>overrides?.deleteChallenge(ch.id)} style={{background:"none",border:"none",color:"#333",cursor:"pointer",fontSize:14}}>✕</button>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* MODAL LANCER UN DÉFI */}
+      {showDefiModal&&(
+        <div className="modal-bg" onClick={()=>{setShowDefiModal(null);setSelPreset(null);}}>
+          <div className="modal-sheet" onClick={e=>e.stopPropagation()}>
+            <div className="modal-handle"/>
+            <div style={{padding:"0 16px 24px"}}>
+              <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:16}}>
+                <Avatar val={showDefiModal.avatarVal||""} fallback={showDefiModal.avatarFb||"👤"} size={40} border="#2A2A3A"/>
+                <div>
+                  <div style={{fontSize:11,color:"#555",fontFamily:"'Barlow',sans-serif"}}>Défier</div>
+                  <div style={{fontWeight:900,fontSize:18}}>@{showDefiModal.pseudo}</div>
+                </div>
+              </div>
+              <div style={{fontSize:11,fontWeight:800,color:"#555",letterSpacing:".08em",marginBottom:10,textTransform:"uppercase"}}>Choisir un défi</div>
+              {DEFI_PRESETS.map(p=>(
+                <div key={p.id} onClick={()=>setSelPreset(selPreset?.id===p.id?null:p)}
+                  style={{display:"flex",alignItems:"center",gap:12,padding:"11px 12px",background:selPreset?.id===p.id?"#FF3D3D14":"#0D0D14",border:`1.5px solid ${selPreset?.id===p.id?"#FF3D3D":"#1A1A24"}`,borderRadius:11,marginBottom:7,cursor:"pointer",transition:"all .15s"}}>
+                  <div style={{width:36,height:36,borderRadius:8,background:"#1A1A24",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,flexShrink:0}}>{p.icon}</div>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{fontWeight:800,fontSize:13,color:selPreset?.id===p.id?"#FF6B6B":"#F0F0F0"}}>{p.title}</div>
+                    <div style={{color:"#444",fontSize:11,fontFamily:"'Barlow',sans-serif",marginTop:1}}>{p.desc}</div>
+                  </div>
+                  <div style={{fontSize:10,color:"#444",flexShrink:0,whiteSpace:"nowrap"}}>{p.durationDays}j</div>
+                  {selPreset?.id===p.id&&<div style={{color:"#FF3D3D",fontSize:16,flexShrink:0}}>✓</div>}
+                </div>
+              ))}
+              <button onClick={launchDefi} disabled={!selPreset}
+                style={{width:"100%",padding:"14px",marginTop:10,background:selPreset?"linear-gradient(135deg,#FF3D3D,#CC2020)":"#1A1A24",border:"none",color:selPreset?"#FFF":"#444",borderRadius:12,fontFamily:"'Barlow Condensed',sans-serif",fontSize:16,fontWeight:900,cursor:selPreset?"pointer":"not-allowed",letterSpacing:".06em",transition:"all .2s"}}>
+                {selPreset?`⚡ LANCER — ${selPreset.durationDays} JOURS`:"Sélectionne un défi"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
+
 
 function ProgramTab({appState,updateState,saveSession}){
   const {programs=[],exercises={},sessionHistory=[]}=appState;

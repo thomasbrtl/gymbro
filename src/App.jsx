@@ -86,7 +86,8 @@ export default function App() {
   const [follows, setFollows]           = useState([])
   const [notifs, setNotifs]             = useState([])
   const [conversations, setConversations] = useState([])
-  const [localData, setLocalData]       = useState({})
+  const [challenges, setChallenges]       = useState([])
+  const [localData, setLocalData]         = useState({})
 
   // Single source of truth for local data — writes localStorage AND triggers re-render
   const saveLocal = useCallback((patch) => {
@@ -227,8 +228,38 @@ export default function App() {
     setConversations(Object.values(convMap))
   }, [supaSession])
 
+  const loadChallenges = useCallback(async () => {
+    if (!supaSession?.user?.id) return
+    const uid = supaSession.user.id
+    const { data } = await supabase
+      .from('challenges')
+      .select('*, challenger:challenger_id(pseudo, avatar_url, sexe), opponent:opponent_id(pseudo, avatar_url, sexe)')
+      .or(`challenger_id.eq.${uid},opponent_id.eq.${uid}`)
+      .order('created_at', { ascending: false })
+      .limit(20)
+    if (!data) return
+    setChallenges(data.map(c => ({
+      id: c.id,
+      challengerId: c.challenger_id,
+      opponentId: c.opponent_id,
+      challengerPseudo: c.challenger?.pseudo || '?',
+      opponentPseudo: c.opponent?.pseudo || '?',
+      challengerAvatar: c.challenger?.avatar_url || '',
+      opponentAvatar: c.opponent?.avatar_url || '',
+      type: c.type,
+      exercise: c.exercise,
+      title: c.title,
+      status: c.status,
+      challengerScore: c.challenger_score || 0,
+      opponentScore: c.opponent_score || 0,
+      endDate: c.end_date,
+      createdAt: new Date(c.created_at).getTime(),
+      winnerId: c.winner_id,
+    })))
+  }, [supaSession])
+
   useEffect(() => {
-    if (supaSession) { loadFeed(); loadFollows(); loadNotifs(); loadConversations() }
+    if (supaSession) { loadFeed(); loadFollows(); loadNotifs(); loadConversations(); loadChallenges() }
   }, [supaSession, loadFeed, loadFollows, loadNotifs, loadConversations])
 
   // ── Realtime + polling ──
@@ -242,6 +273,8 @@ export default function App() {
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'profiles' }, () => loadProfile(uid))
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'notifications', filter: `user_id=eq.${uid}` }, () => loadNotifs())
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages', filter: `to_id=eq.${uid}` }, () => loadConversations())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'challenges', filter: `challenger_id=eq.${uid}` }, () => loadChallenges())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'challenges', filter: `opponent_id=eq.${uid}` }, () => loadChallenges())
       .subscribe()
     const poll = setInterval(() => { loadFeed(); loadProfile(uid); loadNotifs() }, 25000)
     return () => { supabase.removeChannel(ch); clearInterval(poll) }
@@ -376,6 +409,39 @@ export default function App() {
     loadFeed()
   }
 
+  // ══════════════════════ CHALLENGES ══
+  async function createChallenge({ opponentId, type, exercise, title, durationDays }) {
+    if (!supaSession || !profile) return
+    const endDate = new Date(Date.now() + durationDays * 86400000).toISOString()
+    const { error } = await supabase.from('challenges').insert({
+      challenger_id: supaSession.user.id,
+      opponent_id: opponentId,
+      type, exercise: exercise || null, title,
+      status: 'pending',
+      challenger_score: 0, opponent_score: 0,
+      end_date: endDate,
+    })
+    if (error) throw error
+    // Notify opponent
+    supabase.from('notifications').insert({
+      user_id: opponentId, from_id: supaSession.user.id, type: 'challenge',
+    }).catch(() => {})
+    await loadChallenges()
+  }
+
+  async function respondChallenge(challengeId, accept) {
+    if (!supaSession) return
+    const status = accept ? 'active' : 'declined'
+    await supabase.from('challenges').update({ status }).eq('id', challengeId)
+    await loadChallenges()
+  }
+
+  async function deleteChallenge(challengeId) {
+    if (!supaSession) return
+    await supabase.from('challenges').delete().eq('id', challengeId)
+    await loadChallenges()
+  }
+
   // ══════════════════════ SAVE SESSION — OFFLINE FIRST ══
   // Saves locally FIRST (instant UI update), then syncs to Supabase in background
   const saveSession = useCallback(async (dayName, programName, result, durationSec, onLocalUpdate) => {
@@ -435,6 +501,48 @@ export default function App() {
         })
     }
 
+    // ── 3. Update challenge scores ──
+    if (supaSession?.user?.id) {
+      const uid2 = supaSession.user.id
+      const { data: activeChallenges } = await supabase
+        .from('challenges')
+        .select('*')
+        .or(`challenger_id.eq.${uid2},opponent_id.eq.${uid2}`)
+        .eq('status', 'active')
+      if (activeChallenges?.length) {
+        for (const ch of activeChallenges) {
+          const isChallenger = ch.challenger_id === uid2
+          const scoreField = isChallenger ? 'challenger_score' : 'opponent_score'
+          let newScore = isChallenger ? (ch.challenger_score || 0) : (ch.opponent_score || 0)
+          if (ch.type === 'sessions') {
+            newScore += 1
+          } else if (ch.type === 'volume') {
+            const vol = result.reduce((sum, ex) => sum + ex.sets.reduce((s2, set) => s2 + ((set.reps||0) * (set.weight||0)), 0), 0)
+            newScore += Math.round(vol)
+          } else if (ch.type === 'pr' && ch.exercise) {
+            const exResult = result.find(r => r.name === ch.exercise)
+            if (exResult) {
+              const sessionMax = exResult.sets.reduce((m, s) => Math.max(m, s.weight||0), 0)
+              if (sessionMax > newScore) newScore = sessionMax
+            }
+          } else if (ch.type === 'streak') {
+            newScore += 1
+          }
+          // Check if challenge expired
+          const isExpired = ch.end_date && new Date(ch.end_date) < new Date()
+          if (isExpired) {
+            const cs = isChallenger ? newScore : (ch.challenger_score||0)
+            const os = isChallenger ? (ch.opponent_score||0) : newScore
+            const winnerId = cs > os ? ch.challenger_id : cs < os ? ch.opponent_id : null
+            await supabase.from('challenges').update({ [scoreField]: newScore, status: 'finished', winner_id: winnerId }).eq('id', ch.id)
+          } else {
+            await supabase.from('challenges').update({ [scoreField]: newScore }).eq('id', ch.id)
+          }
+        }
+        loadChallenges()
+      }
+    }
+
     return { isNewDay: (profile?.last_session_date || '') !== today, isEarly, prCount }
   }, [supaSession, profile, saveLocal, loadProfile])
 
@@ -450,6 +558,7 @@ export default function App() {
         updatePinnedTrophies: async (ids) => { if (!supaSession) return; await supabase.from('profiles').update({ pinned_trophies: ids }).eq('id', supaSession.user.id); await loadProfile(supaSession.user.id) },
         updateTrophyDate: async (id) => { if (!supaSession || !profile) return; const dates = { ...(profile.trophy_dates||{}), [id]: Date.now() }; await supabase.from('profiles').update({ trophy_dates: dates }).eq('id', supaSession.user.id); await loadProfile(supaSession.user.id) },
         updateCountry: async (c) => { if (!supaSession) return; await supabase.from('profiles').update({ country: c }).eq('id', supaSession.user.id); await loadProfile(supaSession.user.id) },
+        createChallenge, respondChallenge, deleteChallenge,
       }}
       externalAppState={null}
       isAuthenticated={false}
@@ -479,7 +588,7 @@ export default function App() {
     exercises:      localData.exercises      || {},
     sessionHistory: localData.sessionHistory || [],
     country:  profile?.country || 'France',
-    following: follows, conversations, notifs,
+    following: follows, conversations, notifs, challenges,
   }
 
   return <GymbroOffline
@@ -493,6 +602,7 @@ export default function App() {
       updatePinnedTrophies: async (ids) => { await supabase.from('profiles').update({ pinned_trophies: ids }).eq('id', supaSession.user.id); await loadProfile(supaSession.user.id) },
       updateTrophyDate: async (id) => { const dates = { ...(profile?.trophy_dates||{}), [id]: Date.now() }; await supabase.from('profiles').update({ trophy_dates: dates }).eq('id', supaSession.user.id); await loadProfile(supaSession.user.id) },
       updateCountry: async (c) => { await supabase.from('profiles').update({ country: c }).eq('id', supaSession.user.id); await loadProfile(supaSession.user.id) },
+      createChallenge, respondChallenge, deleteChallenge,
     }}
     externalAppState={appState}
     isAuthenticated={true}
