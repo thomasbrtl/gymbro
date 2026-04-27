@@ -124,6 +124,8 @@ export default function App() {
   const [notifs, setNotifs]             = useState([])
   const [conversations, setConversations] = useState([])
   const [challenges, setChallenges]       = useState([])
+  const [referrals, setReferrals]         = useState({ code:'', list:[], count:0 })
+  const [soloChallenge, setSoloChallenge] = useState(null)
   const [localData, setLocalData]         = useState({})
 
   // Single source of truth for local data — writes localStorage AND triggers re-render
@@ -297,7 +299,7 @@ export default function App() {
   }, [supaSession])
 
   useEffect(() => {
-    if (supaSession) { loadFeed(); loadFollows(); loadNotifs(); loadConversations(); loadChallenges() }
+    if (supaSession) { loadFeed(); loadFollows(); loadNotifs(); loadConversations(); loadChallenges(); loadReferrals(); loadSoloChallenge() }
   }, [supaSession, loadFeed, loadFollows, loadNotifs, loadConversations])
 
   // ── Realtime + polling ──
@@ -313,19 +315,29 @@ export default function App() {
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages', filter: `to_id=eq.${uid}` }, () => loadConversations())
       .on('postgres_changes', { event: '*', schema: 'public', table: 'challenges', filter: `challenger_id=eq.${uid}` }, () => loadChallenges())
       .on('postgres_changes', { event: '*', schema: 'public', table: 'challenges', filter: `opponent_id=eq.${uid}` }, () => loadChallenges())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'referrals', filter: `referrer_id=eq.${uid}` }, () => loadReferrals())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'solo_challenges', filter: `user_id=eq.${uid}` }, () => loadSoloChallenge())
       .subscribe()
     const poll = setInterval(() => { loadFeed(); loadProfile(uid); loadNotifs() }, 25000)
     return () => { supabase.removeChannel(ch); clearInterval(poll) }
   }, [supaSession, loadFeed, loadProfile, loadNotifs, loadConversations])
 
   // ══════════════════════ AUTH ══
-  async function signUp({ email, pseudo, password, sexe, age, poids, taille, country }) {
+  async function signUp({ email, pseudo, password, sexe, age, poids, taille, country, referralCode }) {
     const { data, error } = await supabase.auth.signUp({ email, password })
     if (error) throw error
     const uid = data.user.id
     await new Promise(r => setTimeout(r, 600))
-    await supabase.from('profiles').upsert({ id: uid, email, pseudo, sexe, age: +age||0, poids: +poids||0, taille: +taille||0, country: country||'France', points: 0, sessions: 0, prs: 0 })
+    await supabase.from('profiles').upsert({ id: uid, email, pseudo, sexe, age: +age||0, poids: +poids||0, taille: +taille||0, country: country||'France', points: 0, sessions: 0, prs: 0, referred_by: referralCode?.toUpperCase() || null })
     setLocalKey(uid); setLocalData({})
+    // Handle referral
+    if (referralCode?.trim()) {
+      const code = referralCode.trim().toUpperCase()
+      const { data: referrerProf } = await supabase.from('profiles').select('id').eq('referral_code', code).maybeSingle()
+      if (referrerProf) {
+        await supabase.from('referrals').insert({ referrer_id: referrerProf.id, referred_id: uid, status: 'pending' }).catch(() => {})
+      }
+    }
     await loadProfile(uid); await loadFeed(); await loadFollows()
     registerPush(uid)
     return data
@@ -454,6 +466,47 @@ export default function App() {
     loadFeed()
   }
 
+  // ══════════════════════ REFERRALS ══
+  const loadReferrals = useCallback(async () => {
+    if (!supaSession?.user?.id) return
+    const uid = supaSession.user.id
+    // Get own referral code
+    const { data: prof } = await supabase.from('profiles').select('referral_code, premium_until, is_premium').eq('id', uid).single()
+    // Get referrals list
+    const { data: refs } = await supabase.from('referrals')
+      .select('*, referred:referred_id(pseudo, avatar_url)')
+      .eq('referrer_id', uid)
+      .order('created_at', { ascending: false })
+    const validated = (refs || []).filter(r => r.status === 'validated').length
+    setReferrals({
+      code: prof?.referral_code || '',
+      premiumUntil: prof?.premium_until,
+      isPremium: prof?.is_premium || false,
+      list: (refs || []).map(r => ({
+        id: r.id,
+        pseudo: r.referred?.pseudo || '?',
+        avatar: r.referred?.avatar_url || '',
+        status: r.status,
+        createdAt: new Date(r.created_at).getTime(),
+      })),
+      count: validated,
+    })
+  }, [supaSession])
+
+  // ══════════════════════ SOLO CHALLENGES ══
+  const loadSoloChallenge = useCallback(async () => {
+    if (!supaSession?.user?.id) return
+    const { data } = await supabase.from('solo_challenges')
+      .select('*').eq('user_id', supaSession.user.id).eq('status', 'active').maybeSingle()
+    if (!data) { setSoloChallenge(null); return }
+    setSoloChallenge({
+      id: data.id, type: data.type, exercise: data.exercise,
+      title: data.title, target: data.target, current: data.current,
+      xpReward: data.xp_reward, endDate: data.end_date,
+      status: data.status, createdAt: new Date(data.created_at).getTime(),
+    })
+  }, [supaSession])
+
   // ══════════════════════ CHALLENGES ══
   async function createChallenge({ opponentId, type, exercise, title, durationDays }) {
     if (!supaSession || !profile) return
@@ -487,6 +540,25 @@ export default function App() {
     if (!supaSession) return
     await supabase.from('challenges').delete().eq('id', challengeId)
     await loadChallenges()
+  }
+
+  async function createSoloChallenge({ type, exercise, title, target, durationDays }) {
+    if (!supaSession) return
+    if (soloChallenge) throw new Error('Un défi solo est déjà en cours')
+    const xpReward = durationDays <= 7 ? 300 : durationDays <= 14 ? 600 : durationDays <= 30 ? 1000 : 1500
+    const endDate = new Date(Date.now() + durationDays * 86400000).toISOString()
+    const { error } = await supabase.from('solo_challenges').insert({
+      user_id: supaSession.user.id, type, exercise: exercise || null,
+      title, target, current: 0, xp_reward: xpReward, end_date: endDate, status: 'active',
+    })
+    if (error) throw error
+    await loadSoloChallenge()
+  }
+
+  async function deleteSoloChallenge(id) {
+    if (!supaSession) return
+    await supabase.from('solo_challenges').delete().eq('id', id)
+    setSoloChallenge(null)
   }
 
   // ══════════════════════ SAVE SESSION — OFFLINE FIRST ══
@@ -590,6 +662,49 @@ export default function App() {
       }
     }
 
+    // ── 4. Update solo challenge ──
+    if (supaSession?.user?.id && soloChallenge?.status === 'active') {
+      const sc = soloChallenge
+      let newCurrent = sc.current
+      if (sc.type === 'sessions') newCurrent += 1
+      else if (sc.type === 'volume') {
+        const vol = result.reduce((s, ex) => s + ex.sets.reduce((s2, set) => s2 + ((set.reps||0)*(set.weight||0)), 0), 0)
+        newCurrent += Math.round(vol)
+      } else if (sc.type === 'pr' && sc.exercise) {
+        const exResult = result.find(r => r.name === sc.exercise)
+        if (exResult) {
+          const sessionMax = exResult.sets.reduce((m, s) => Math.max(m, s.weight||0), 0)
+          if (sessionMax > newCurrent) newCurrent = sessionMax
+        }
+      } else if (sc.type === 'streak') newCurrent += 1
+      const isExpired = sc.endDate && new Date(sc.endDate) < new Date()
+      const isSuccess = newCurrent >= sc.target
+      let newStatus = 'active'
+      let xpBonus = 0
+      if (isSuccess) { newStatus = 'success'; xpBonus = sc.xpReward }
+      else if (isExpired) { newStatus = 'failed' }
+      await supabase.from('solo_challenges').update({ current: newCurrent, status: newStatus }).eq('id', sc.id)
+      if (xpBonus > 0) {
+        await supabase.from('profiles').update({ points: (profile?.points||0) + xpBonus }).eq('id', supaSession.user.id)
+      }
+      loadSoloChallenge()
+    }
+
+    // ── 5. Validate referral on first session ──
+    if (supaSession?.user?.id && profile?.sessions === 0) {
+      const { data: myRef } = await supabase.from('referrals').select('id, referrer_id').eq('referred_id', supaSession.user.id).eq('status', 'pending').maybeSingle()
+      if (myRef) {
+        await supabase.from('referrals').update({ status: 'validated', validated_at: new Date().toISOString() }).eq('id', myRef.id)
+        // Check if referrer now has 5 validated referrals
+        const { count } = await supabase.from('referrals').select('*', { count: 'exact', head: true }).eq('referrer_id', myRef.referrer_id).eq('status', 'validated')
+        if (count && count >= 5) {
+          const premiumUntil = new Date(Date.now() + 30 * 86400000).toISOString()
+          await supabase.from('profiles').update({ is_premium: true, premium_until: premiumUntil }).eq('id', myRef.referrer_id)
+          sendPushTo(myRef.referrer_id, '🎉 Premium offert !', 'Tu as parrainé 5 personnes — 1 mois Premium gratuit activé !', 'premium')
+        }
+      }
+    }
+
     return { isNewDay: (profile?.last_session_date || '') !== today, isEarly, prCount }
   }, [supaSession, profile, saveLocal, loadProfile])
 
@@ -606,6 +721,7 @@ export default function App() {
         updateTrophyDate: async (id) => { if (!supaSession || !profile) return; const dates = { ...(profile.trophy_dates||{}), [id]: Date.now() }; await supabase.from('profiles').update({ trophy_dates: dates }).eq('id', supaSession.user.id); await loadProfile(supaSession.user.id) },
         updateCountry: async (c) => { if (!supaSession) return; await supabase.from('profiles').update({ country: c }).eq('id', supaSession.user.id); await loadProfile(supaSession.user.id) },
         createChallenge, respondChallenge, deleteChallenge,
+        createSoloChallenge, deleteSoloChallenge,
       }}
       externalAppState={null}
       isAuthenticated={false}
@@ -635,7 +751,7 @@ export default function App() {
     exercises:      localData.exercises      || {},
     sessionHistory: localData.sessionHistory || [],
     country:  profile?.country || 'France',
-    following: follows, conversations, notifs, challenges,
+    following: follows, conversations, notifs, challenges, referrals, soloChallenge,
   }
 
   return <GymbroOffline
@@ -650,6 +766,7 @@ export default function App() {
       updateTrophyDate: async (id) => { const dates = { ...(profile?.trophy_dates||{}), [id]: Date.now() }; await supabase.from('profiles').update({ trophy_dates: dates }).eq('id', supaSession.user.id); await loadProfile(supaSession.user.id) },
       updateCountry: async (c) => { await supabase.from('profiles').update({ country: c }).eq('id', supaSession.user.id); await loadProfile(supaSession.user.id) },
       createChallenge, respondChallenge, deleteChallenge,
+      createSoloChallenge, deleteSoloChallenge,
     }}
     externalAppState={appState}
     isAuthenticated={true}

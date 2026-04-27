@@ -369,7 +369,7 @@ function Login({onOk,goBack,goSignup}){
 
 function Signup({onOk,goBack}){
   const [step,setStep]=useState(0); const [errs,setErrs]=useState({});
-  const [f,setF]=useState({email:"",pseudo:"",password:"",confirm:"",age:"",sexe:"",poids:"",taille:""});
+  const [f,setF]=useState({email:"",pseudo:"",password:"",confirm:"",age:"",sexe:"",poids:"",taille:"",referralCode:""});
   const upd=(k,v)=>{setF(p=>({...p,[k]:v}));setErrs(p=>({...p,[k]:""}));};
   const validate=()=>{
     const e={};
@@ -381,10 +381,7 @@ function Signup({onOk,goBack}){
   const next=()=>{
     if(!validate())return;
     if(step<2){setStep(s=>s+1);return;}
-    const user={...f,createdAt:Date.now(),bio:"",avatar:"",pinnedTrophies:[],trophyDates:{}};
-    const stats={sessions:0,prs:0,points:0,earlySession:false,nightSession:false,weekendSessions:0,posts:0,streak:0,totalLikes:0,followers:0,following:0,changedCountry:false,commentsSent:0};
-    const appState={user,stats,posts:[],programs:[],exercises:{},sessionHistory:[],country:"France",following:[],conversations:[]};
-    saveState(appState); onOk(appState);
+    onOk({...f});
   };
   const lbl=(txt,k)=><div style={{fontSize:11,fontWeight:700,color:errs[k]?"#FF8080":"#555",letterSpacing:".09em",textTransform:"uppercase",marginBottom:5,fontFamily:"'Barlow Condensed',sans-serif"}}>{txt}{errs[k]&&<span style={{fontWeight:400,fontSize:11,textTransform:"none",letterSpacing:0,marginLeft:6}}>— {errs[k]}</span>}</div>;
   const imc=f.poids&&f.taille?(Number(f.poids)/((Number(f.taille)/100)**2)).toFixed(1):null;
@@ -408,6 +405,11 @@ function Signup({onOk,goBack}){
           <div>{lbl("Poids","poids")}<div style={{position:"relative"}}><input className={`inp${errs.poids?" err":""}`} type="number" placeholder="75" min="30" max="300" value={f.poids} onChange={e=>upd("poids",e.target.value)} style={{paddingRight:40}}/><span style={{position:"absolute",right:14,top:"50%",transform:"translateY(-50%)",color:"#555",fontSize:13,pointerEvents:"none"}}>kg</span></div></div>
           <div>{lbl("Taille","taille")}<div style={{position:"relative"}}><input className={`inp${errs.taille?" err":""}`} type="number" placeholder="175" min="100" max="250" value={f.taille} onChange={e=>upd("taille",e.target.value)} style={{paddingRight:40}}/><span style={{position:"absolute",right:14,top:"50%",transform:"translateY(-50%)",color:"#555",fontSize:13,pointerEvents:"none"}}>cm</span></div></div>
           {imc&&<div style={{background:"#13131A",border:"1px solid #2A2A3A",borderRadius:10,padding:"11px 14px",display:"flex",justifyContent:"space-between",alignItems:"center"}}><span style={{fontSize:13,color:"#666",fontFamily:"'Barlow Condensed',sans-serif",fontWeight:700}}>IMC estimé</span><span style={{fontSize:22,fontWeight:900,color:Number(imc)<18.5||Number(imc)>30?"#FFD700":"#22C55E"}}>{imc}</span></div>}
+          <div style={{marginTop:4}}>
+            {lbl("Code parrain (optionnel)","referralCode")}
+            <input className="inp" placeholder="ex: ALX042" value={f.referralCode} onChange={e=>upd("referralCode",e.target.value.toUpperCase())} style={{letterSpacing:".12em",fontFamily:"'Barlow Condensed',sans-serif",fontWeight:700,fontSize:16}}/>
+            <div style={{fontSize:11,color:"#444",marginTop:4,fontFamily:"'Barlow',sans-serif"}}>Saisis le code d'un ami pour lui donner de l'avance vers le Premium ✨</div>
+          </div>
         </div>}
         <div style={{flex:1}}/>
         <button className="btn-r" onClick={next} style={{marginTop:20}}>{step<2?"CONTINUER →":"CRÉER MON COMPTE 🚀"}</button>
@@ -562,7 +564,7 @@ function SupabaseLogin({ onOk, goBack, goSignup }) {
 // ── Supabase Signup ──
 function SupabaseSignup({ onOk, goBack }) {
   const [step,setStep]=useState(0);const [errs,setErrs]=useState({});const [loading,setLoading]=useState(false);const [err,setErr]=useState("");
-  const [f,setF]=useState({email:"",pseudo:"",password:"",confirm:"",age:"",sexe:"",poids:"",taille:"",country:"France"});
+  const [f,setF]=useState({email:"",pseudo:"",password:"",confirm:"",age:"",sexe:"",poids:"",taille:"",country:"France",referralCode:""});
   const upd=(k,v)=>{setF(p=>({...p,[k]:v}));setErrs(p=>({...p,[k]:""}));};
   const validate=()=>{const e={};if(step===0){if(!f.email.match(/^[^\s@]+@[^\s@]+\.[^\s@]+$/))e.email="Email invalide";if(!f.pseudo||f.pseudo.length<3)e.pseudo="3 chars min";if(/\s/.test(f.pseudo))e.pseudo="Pas d'espaces";if(!f.password||f.password.length<6)e.password="6 chars min";if(f.password!==f.confirm)e.confirm="Ne correspond pas";}if(step===1){const a=Number(f.age);if(!f.age||a<13||a>100)e.age="13-100";if(!f.sexe)e.sexe="Requis";}if(step===2){const p=Number(f.poids),t=Number(f.taille);if(!f.poids||p<30||p>300)e.poids="30-300kg";if(!f.taille||t<100||t>250)e.taille="100-250cm";}setErrs(e);return Object.keys(e).length===0;};
   const next=async()=>{
@@ -596,6 +598,11 @@ function SupabaseSignup({ onOk, goBack }) {
           <div>{lbl("Taille","taille")}<div style={{position:"relative"}}><input className={`inp${errs.taille?" err":""}`} type="number" placeholder="175" value={f.taille} onChange={e=>upd("taille",e.target.value)} style={{paddingRight:40}}/><span style={{position:"absolute",right:14,top:"50%",transform:"translateY(-50%)",color:"#555",fontSize:13,pointerEvents:"none"}}>cm</span></div></div>
           {imc&&<div style={{background:"#13131A",border:"1px solid #2A2A3A",borderRadius:10,padding:"11px 14px",display:"flex",justifyContent:"space-between",alignItems:"center"}}><span style={{fontSize:13,color:"#666",fontFamily:"'Barlow Condensed',sans-serif",fontWeight:700}}>IMC estimé</span><span style={{fontSize:22,fontWeight:900,color:Number(imc)<18.5||Number(imc)>30?"#FFD700":"#22C55E"}}>{imc}</span></div>}
           <div><div style={{fontSize:10,fontWeight:700,color:"#555",textTransform:"uppercase",letterSpacing:".09em",marginBottom:5,fontFamily:"'Barlow Condensed',sans-serif"}}>Pays (pour le classement)</div><select className="inp" value={f.country||"France"} onChange={e=>upd("country",e.target.value)} style={{cursor:"pointer"}}>{["France","Belgique","Suisse","Canada","Allemagne","Espagne","Italie","Royaume-Uni","États-Unis"].map(p=><option key={p} value={p}>{p}</option>)}</select></div>
+          <div style={{marginTop:4}}>
+            <div style={{fontSize:10,fontWeight:700,color:"#555",textTransform:"uppercase",letterSpacing:".09em",marginBottom:5,fontFamily:"'Barlow Condensed',sans-serif"}}>Code parrain (optionnel)</div>
+            <input className="inp" placeholder="ex: ALX042" value={f.referralCode} onChange={e=>upd("referralCode",e.target.value.toUpperCase())} style={{letterSpacing:".12em",fontFamily:"'Barlow Condensed',sans-serif",fontWeight:700,fontSize:16}}/>
+            <div style={{fontSize:11,color:"#444",marginTop:4,fontFamily:"'Barlow',sans-serif"}}>Saisis le code d'un ami — ça lui rapproche du Premium 🎁</div>
+          </div>
         </div>}
         {err&&<div style={{background:"#FF3D3D15",border:"1px solid #FF3D3D44",borderRadius:10,padding:"10px 14px",marginTop:12,color:"#FF8080",fontSize:13,fontFamily:"'Barlow',sans-serif"}}>⚠️ {err}</div>}
         <div style={{flex:1}}/>
@@ -818,7 +825,7 @@ function AppMain({appState,updateState,onLogout,overrides={}}){
         {tab==="program"  && <ProgramTab appState={appState} updateState={updateState} saveSession={saveSession}/>}
         {tab==="trophies" && <TrophiesTab stats={stats} user={user} updateState={updateState}/>}
         {tab==="ranked"   && <RankedTab appState={{...appState,_openProfile:(p)=>setViewProfile(p)}} updateState={updateState} rank={rank} nextRank={nextRank} rankPct={rankPct} stats={stats}/>}
-        {tab==="profile"  && <ProfileTab appState={appState} updateState={updateState} rank={rank} imc={imc} av={av} onEdit={()=>setEditProfileOpen(true)} onLogout={onLogout} posts={posts} checkTrophies={checkTrophies} deletePost={overrides.deletePost} onOpenPost={(p)=>setViewPostGlobal(p)}/>}
+        {tab==="profile"  && <ProfileTab appState={appState} updateState={updateState} rank={rank} imc={imc} av={av} onEdit={()=>setEditProfileOpen(true)} onLogout={onLogout} posts={posts} checkTrophies={checkTrophies} deletePost={overrides.deletePost} onOpenPost={(p)=>setViewPostGlobal(p)} overrides={overrides}/>}
       </div>
 
       {/* Nav */}
@@ -2691,12 +2698,16 @@ function PostViewModal({post,onClose,toggleLike,addComment,myPseudo,myAvatarVal,
 
 
 // ══════════════════════ PROFILE ══
-function ProfileTab({appState,updateState,rank,imc,av,onEdit,onLogout,posts,checkTrophies,deletePost,onOpenPost}){
+function ProfileTab({appState,updateState,rank,imc,av,onEdit,onLogout,posts,checkTrophies,deletePost,onOpenPost,overrides}){
   const {user,stats,following=[]}=appState;
+  const referrals=appState.referrals||{code:"",list:[],count:0};
+  const soloChallenge=appState.soloChallenge||null;
   const [profTab,setProfTab]=useState("posts");
   const [showPinModal,setShowPinModal]=useState(false);
   const [selPinnedTrophy,setSelPinnedTrophy]=useState(null);
   const [viewPost,setViewPost]=useState(null);
+  const [showSoloModal,setShowSoloModal]=useState(false);
+  const [showReferralModal,setShowReferralModal]=useState(false);
   const unlocked=TROPHIES.filter(t=>t.condition(stats));
   const pinned=(user.pinnedTrophies||[]).map(id=>TROPHIES.find(t=>t.id===id)).filter(Boolean);
   const myPosts=posts.filter(p=>p.userId==="me");
@@ -2729,6 +2740,38 @@ function ProfileTab({appState,updateState,rank,imc,av,onEdit,onLogout,posts,chec
         {[{l:"Posts",v:myPosts.length},{l:"Abonnés",v:stats.followers||0},{l:"Abonnements",v:following.length}].map((s,i)=>(
           <div key={i} style={{background:"#0D0D14",borderRadius:9,padding:"9px 6px",textAlign:"center"}}><div style={{fontSize:18,fontWeight:900}}>{s.v}</div><div style={{color:"#888",fontSize:10,fontWeight:600}}>{s.l}</div></div>
         ))}
+      </div>
+
+      {/* ── Défi solo + Parrainage cards ── */}
+      <div style={{display:"flex",gap:8,marginBottom:12}}>
+        {/* Défi solo */}
+        <div onClick={()=>setShowSoloModal(true)} style={{flex:1,background:soloChallenge?"#1A0A00":"#0D0D14",border:`1px solid ${soloChallenge?"#FF3D3D44":"#1A1A24"}`,borderRadius:12,padding:"11px 12px",cursor:"pointer"}}>
+          <div style={{fontSize:16,marginBottom:3}}>🎯</div>
+          <div style={{fontSize:12,fontWeight:900,color:soloChallenge?"#FF6B6B":"#888"}}>Défi solo</div>
+          {soloChallenge
+            ?<>
+              <div style={{fontSize:10,color:"#555",fontFamily:"'Barlow',sans-serif",marginTop:2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{soloChallenge.title}</div>
+              <div style={{height:3,background:"#1A1A24",borderRadius:2,overflow:"hidden",marginTop:6}}>
+                <div style={{height:"100%",width:`${Math.min((soloChallenge.current/soloChallenge.target)*100,100)}%`,background:"#FF3D3D",borderRadius:2}}/>
+              </div>
+              <div style={{fontSize:9,color:"#444",marginTop:3}}>{soloChallenge.current}/{soloChallenge.target}</div>
+            </>
+            :<div style={{fontSize:10,color:"#444",marginTop:2,fontFamily:"'Barlow',sans-serif"}}>Lance un défi →</div>
+          }
+        </div>
+
+        {/* Parrainage */}
+        <div onClick={()=>setShowReferralModal(true)} style={{flex:1,background:"#0D0D14",border:`1px solid ${referrals.count>=5?"#22C55E44":referrals.count>0?"#FBBF2433":"#1A1A24"}`,borderRadius:12,padding:"11px 12px",cursor:"pointer"}}>
+          <div style={{fontSize:16,marginBottom:3}}>🎁</div>
+          <div style={{fontSize:12,fontWeight:900,color:referrals.count>=5?"#22C55E":referrals.count>0?"#FBBF24":"#888"}}>Parrainage</div>
+          <div style={{fontSize:11,fontWeight:800,color:"#555",marginTop:2}}>{referrals.count}/5</div>
+          <div style={{height:3,background:"#1A1A24",borderRadius:2,overflow:"hidden",marginTop:6}}>
+            <div style={{height:"100%",width:`${Math.min((referrals.count/5)*100,100)}%`,background:referrals.count>=5?"#22C55E":"#FBBF24",borderRadius:2}}/>
+          </div>
+          <div style={{fontSize:9,color:"#444",marginTop:3}}>
+            {referrals.count>=5?"Premium actif 🎉":`Code: ${referrals.code||"..."}`}
+          </div>
+        </div>
       </div>
 
       {/* Pinned trophies */}
@@ -2889,6 +2932,197 @@ function ProfileTab({appState,updateState,rank,imc,av,onEdit,onLogout,posts,chec
           </div>
         </div>
       )}
+
+      {/* ── REFERRAL MODAL ── */}
+      {showReferralModal&&(
+        <div className="modal-bg" onTouchMove={e=>e.stopPropagation()} onWheel={e=>e.stopPropagation()} onClick={()=>setShowReferralModal(false)}>
+          <div className="modal-sheet" onClick={e=>e.stopPropagation()} style={{display:"flex",flexDirection:"column",maxHeight:"85vh"}}>
+            <div className="modal-handle" style={{flexShrink:0}}/>
+            <div className="sa" style={{flex:1,padding:"0 16px 24px"}}>
+              <div style={{fontSize:22,fontWeight:900,marginBottom:4}}>Parrainage 🎁</div>
+              <div style={{fontSize:13,color:"#555",fontFamily:"'Barlow',sans-serif",marginBottom:20,lineHeight:1.5}}>Partage ton code. Quand 5 filleuls complètent leur 1ère séance → tu gagnes 1 mois Premium gratuit.</div>
+
+              {/* Code block */}
+              <div style={{background:"#13131A",border:"1px solid #2A2A3A",borderRadius:14,padding:"16px",marginBottom:20,textAlign:"center"}}>
+                <div style={{fontSize:10,fontWeight:800,color:"#555",letterSpacing:".1em",marginBottom:6,textTransform:"uppercase"}}>Ton code</div>
+                <div style={{fontSize:36,fontWeight:900,letterSpacing:".2em",color:"#F0F0F0"}}>{referrals.code||"..."}</div>
+                <button onClick={()=>navigator.clipboard?.writeText(referrals.code||"").catch(()=>{})}
+                  style={{marginTop:10,background:"#FF3D3D18",border:"1px solid #FF3D3D44",color:"#FF6B6B",borderRadius:9,padding:"8px 20px",fontFamily:"'Barlow Condensed',sans-serif",fontSize:13,fontWeight:800,cursor:"pointer",letterSpacing:".04em"}}>
+                  📋 COPIER
+                </button>
+              </div>
+
+              {/* Progress */}
+              <div style={{marginBottom:20}}>
+                <div style={{display:"flex",justifyContent:"space-between",marginBottom:8}}>
+                  <span style={{fontSize:13,fontWeight:700}}>Filleuls validés</span>
+                  <span style={{fontSize:18,fontWeight:900,color:referrals.count>=5?"#22C55E":"#FBBF24"}}>{referrals.count}/5</span>
+                </div>
+                <div style={{height:8,background:"#1A1A24",borderRadius:4,overflow:"hidden"}}>
+                  <div style={{height:"100%",width:`${Math.min((referrals.count/5)*100,100)}%`,background:referrals.count>=5?"#22C55E":"linear-gradient(90deg,#FF3D3D,#FBBF24)",borderRadius:4,transition:"width .6s"}}/>
+                </div>
+                {referrals.count>=5
+                  ?<div style={{color:"#22C55E",fontSize:12,marginTop:5,fontWeight:700}}>🎉 Premium activé !</div>
+                  :<div style={{color:"#444",fontSize:11,marginTop:5,fontFamily:"'Barlow',sans-serif"}}>Encore {5-referrals.count} filleul{5-referrals.count>1?"s":""} pour débloquer 1 mois Premium</div>
+                }
+              </div>
+
+              {/* List */}
+              {referrals.list?.length>0&&(
+                <div>
+                  <div style={{fontSize:11,fontWeight:800,color:"#555",letterSpacing:".08em",textTransform:"uppercase",marginBottom:8}}>Filleuls</div>
+                  {referrals.list.map(r=>(
+                    <div key={r.id} style={{display:"flex",alignItems:"center",gap:10,padding:"9px 0",borderBottom:"1px solid #1A1A24"}}>
+                      <div style={{width:34,height:34,borderRadius:"50%",background:"#1A1A24",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,flexShrink:0}}>👤</div>
+                      <div style={{flex:1}}>
+                        <div style={{fontWeight:700,fontSize:13}}>@{r.pseudo}</div>
+                        <div style={{fontSize:11,color:"#444",marginTop:1}}>{new Date(r.createdAt).toLocaleDateString("fr")}</div>
+                      </div>
+                      <span style={{fontSize:10,fontWeight:800,padding:"3px 8px",borderRadius:6,background:r.status==="validated"?"#22C55E18":"#1A1A24",color:r.status==="validated"?"#22C55E":"#555",border:`1px solid ${r.status==="validated"?"#22C55E33":"#2A2A3A"}`}}>
+                        {r.status==="validated"?"✓ Validé":"En attente"}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {(!referrals.list||referrals.list.length===0)&&(
+                <div style={{textAlign:"center",padding:"24px 0",color:"#333"}}>
+                  <div style={{fontSize:32,marginBottom:8}}>👥</div>
+                  <div style={{fontSize:13,fontFamily:"'Barlow',sans-serif"}}>Partage ton code pour inviter des amis</div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── SOLO CHALLENGE MODAL ── */}
+      {showSoloModal&&(
+        <SoloChallengeModal
+          current={soloChallenge}
+          onClose={()=>setShowSoloModal(false)}
+          onCreate={async(data)=>{await overrides?.createSoloChallenge?.(data);setShowSoloModal(false);}}
+          onDelete={async()=>{await overrides?.deleteSoloChallenge?.(soloChallenge?.id);setShowSoloModal(false);}}
+        />
+      )}
+    </div>
+  );
+}
+
+// ══════════════════════ SOLO CHALLENGE MODAL ══
+const SOLO_PRESETS = [
+  {id:"pr_bench",   icon:"🏋️",title:"PR Développé couché",  desc:"Atteins un nouveau max au bench",   type:"pr",  exercise:"Développé couché",   unit:"kg"},
+  {id:"pr_squat",   icon:"🦵",title:"PR Squat",              desc:"Atteins un nouveau max au squat",   type:"pr",  exercise:"Squat",               unit:"kg"},
+  {id:"pr_dead",    icon:"💀",title:"PR Soulevé de terre",   desc:"Atteins un nouveau max au deadlift",type:"pr",  exercise:"Soulevé de terre",    unit:"kg"},
+  {id:"pr_ohp",     icon:"🔝",title:"PR Développé militaire",desc:"Atteins un nouveau max au OHP",    type:"pr",  exercise:"Développé militaire", unit:"kg"},
+  {id:"sessions",   icon:"🔥",title:"Séances régulières",    desc:"Complète X séances en Y jours",    type:"sessions",exercise:null,             unit:"séances"},
+  {id:"volume",     icon:"📊",title:"Volume total",          desc:"Soulève X kg au total sur la période",type:"volume",exercise:null,            unit:"kg"},
+];
+const SOLO_DURATIONS = [{d:7,l:"7 jours",xp:300},{d:14,l:"14 jours",xp:600},{d:30,l:"30 jours",xp:1000},{d:60,l:"60 jours",xp:1500}];
+
+function SoloChallengeModal({current, onClose, onCreate, onDelete}){
+  const [preset,setPreset]=useState(null);
+  const [duration,setDuration]=useState(SOLO_DURATIONS[2]);
+  const [target,setTarget]=useState("");
+  const [loading,setLoading]=useState(false);
+
+  const launch=async()=>{
+    if(!preset||!target)return;
+    setLoading(true);
+    try{ await onCreate({type:preset.type,exercise:preset.exercise,title:preset.title,target:Number(target),durationDays:duration.d}); }
+    catch(e){ console.error(e); }
+    setLoading(false);
+  };
+
+  const timeLeft=(endDateStr)=>{
+    const ms=new Date(endDateStr).getTime()-Date.now();
+    if(ms<=0)return"Terminé";
+    const d=Math.floor(ms/86400000);
+    const h=Math.floor((ms%86400000)/3600000);
+    return d>0?`${d}j ${h}h`:`${h}h`;
+  };
+
+  return(
+    <div className="modal-bg" onTouchMove={e=>e.stopPropagation()} onWheel={e=>e.stopPropagation()} onClick={onClose}>
+      <div className="modal-sheet" onClick={e=>e.stopPropagation()} style={{display:"flex",flexDirection:"column",maxHeight:"90vh"}}>
+        <div className="modal-handle" style={{flexShrink:0}}/>
+        <div className="sa" style={{flex:1,padding:"0 16px",minHeight:0}}>
+          <div style={{fontSize:22,fontWeight:900,marginBottom:4}}>🎯 Défi solo</div>
+          <div style={{fontSize:13,color:"#555",fontFamily:"'Barlow',sans-serif",marginBottom:16,lineHeight:1.4}}>1 défi actif à la fois. Atteins ton objectif pour gagner des XP.</div>
+
+          {/* Défi en cours */}
+          {current&&(
+            <div style={{background:"#1A0800",border:"1px solid #FF3D3D44",borderRadius:14,padding:"14px",marginBottom:16}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+                <div>
+                  <div style={{fontWeight:900,fontSize:15,marginBottom:2}}>{current.title}</div>
+                  <div style={{fontSize:11,color:"#555",fontFamily:"'Barlow',sans-serif"}}>⏱ {timeLeft(current.endDate)} · +{current.xpReward} XP</div>
+                </div>
+                <button onClick={onDelete} style={{background:"none",border:"none",color:"#444",cursor:"pointer",fontSize:14}}>✕</button>
+              </div>
+              <div style={{marginTop:12}}>
+                <div style={{display:"flex",justifyContent:"space-between",marginBottom:5}}>
+                  <span style={{fontSize:12,color:"#888",fontFamily:"'Barlow',sans-serif"}}>Progression</span>
+                  <span style={{fontSize:14,fontWeight:900,color:"#FF6B6B"}}>{current.current} / {current.target} {current.type==="pr"||current.type==="volume"?"kg":current.type==="sessions"?"séances":"j"}</span>
+                </div>
+                <div style={{height:6,background:"#1A1A24",borderRadius:3,overflow:"hidden"}}>
+                  <div style={{height:"100%",width:`${Math.min((current.current/current.target)*100,100)}%`,background:"linear-gradient(90deg,#FF3D3D,#FBBF24)",borderRadius:3,transition:"width .5s"}}/>
+                </div>
+                <div style={{fontSize:10,color:"#444",marginTop:4}}>{Math.round((current.current/current.target)*100)}% accompli</div>
+              </div>
+            </div>
+          )}
+
+          {!current&&<>
+            {/* Preset selection */}
+            <div style={{fontSize:11,fontWeight:800,color:"#555",letterSpacing:".08em",textTransform:"uppercase",marginBottom:8}}>Type de défi</div>
+            {SOLO_PRESETS.map(p=>(
+              <div key={p.id} onClick={()=>setPreset(preset?.id===p.id?null:p)}
+                style={{display:"flex",alignItems:"center",gap:12,padding:"10px 12px",background:preset?.id===p.id?"#FF3D3D14":"#0D0D14",border:`1.5px solid ${preset?.id===p.id?"#FF3D3D":"#1A1A24"}`,borderRadius:10,marginBottom:6,cursor:"pointer",transition:"all .15s"}}>
+                <div style={{width:34,height:34,borderRadius:8,background:"#1A1A24",display:"flex",alignItems:"center",justifyContent:"center",fontSize:17,flexShrink:0}}>{p.icon}</div>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontWeight:800,fontSize:13,color:preset?.id===p.id?"#FF6B6B":"#F0F0F0"}}>{p.title}</div>
+                  <div style={{fontSize:11,color:"#444",fontFamily:"'Barlow',sans-serif"}}>{p.desc}</div>
+                </div>
+                {preset?.id===p.id&&<span style={{color:"#FF3D3D",fontSize:15}}>✓</span>}
+              </div>
+            ))}
+
+            {preset&&<>
+              {/* Target */}
+              <div style={{marginTop:14,marginBottom:10}}>
+                <div style={{fontSize:11,fontWeight:800,color:"#555",letterSpacing:".08em",textTransform:"uppercase",marginBottom:6}}>Objectif ({preset.unit})</div>
+                <input className="inp" type="number" placeholder={preset.type==="pr"?"ex: 100":preset.type==="sessions"?"ex: 10":"ex: 5000"} value={target} onChange={e=>setTarget(e.target.value)} style={{fontFamily:"'Barlow Condensed',sans-serif",fontWeight:900,fontSize:18,textAlign:"center"}}/>
+              </div>
+
+              {/* Duration */}
+              <div style={{marginBottom:16}}>
+                <div style={{fontSize:11,fontWeight:800,color:"#555",letterSpacing:".08em",textTransform:"uppercase",marginBottom:6}}>Durée</div>
+                <div style={{display:"flex",gap:6}}>
+                  {SOLO_DURATIONS.map(d=>(
+                    <button key={d.d} onClick={()=>setDuration(d)}
+                      style={{flex:1,padding:"9px 4px",background:duration.d===d.d?"#FF3D3D22":"#0D0D14",border:`1.5px solid ${duration.d===d.d?"#FF3D3D":"#1A1A24"}`,color:duration.d===d.d?"#FF6B6B":"#888",borderRadius:9,fontFamily:"'Barlow Condensed',sans-serif",fontSize:11,fontWeight:800,cursor:"pointer",textAlign:"center"}}>
+                      <div>{d.l}</div>
+                      <div style={{fontSize:9,color:duration.d===d.d?"#FF3D3D44":"#333",marginTop:2}}>+{d.xp} XP</div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </>}
+            <div style={{height:8}}/>
+          </>}
+        </div>
+
+        {!current&&<div style={{padding:"12px 16px",paddingBottom:"max(16px,env(safe-area-inset-bottom,16px))",borderTop:"1px solid #1A1A24",flexShrink:0,background:"#0F0F18"}}>
+          <button onClick={launch} disabled={!preset||!target||loading}
+            style={{width:"100%",padding:"14px",background:preset&&target?"linear-gradient(135deg,#FF3D3D,#CC2020)":"#1A1A24",border:"none",color:preset&&target?"#FFF":"#444",borderRadius:12,fontFamily:"'Barlow Condensed',sans-serif",fontSize:16,fontWeight:900,cursor:preset&&target?"pointer":"not-allowed",letterSpacing:".06em",transition:"all .2s"}}>
+            {loading?"Lancement...":preset&&target?`🎯 LANCER — ${duration.xp} XP À LA CLÉ`:"Choisis un défi et un objectif"}
+          </button>
+        </div>}
+        {current&&<div style={{padding:"12px 16px",paddingBottom:"max(16px,env(safe-area-inset-bottom,16px))",flexShrink:0}}>
+          <button onClick={onClose} style={{width:"100%",padding:"12px",background:"#1A1A24",border:"none",color:"#888",borderRadius:12,fontFamily:"'Barlow Condensed',sans-serif",fontSize:14,fontWeight:700,cursor:"pointer"}}>Fermer</button>
+        </div>}
+      </div>
     </div>
   );
 }
