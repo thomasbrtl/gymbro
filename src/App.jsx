@@ -224,8 +224,20 @@ export default function App() {
 
   const loadFollows = useCallback(async () => {
     if (!supaSession?.user?.id) return
-    const { data } = await supabase.from('follows').select('following_id').eq('follower_id', supaSession.user.id)
-    setFollows((data || []).map(f => f.following_id))
+    const { data } = await supabase
+      .from('follows')
+      .select('following_id, profiles!following_id(id, pseudo, avatar_url, points, sexe, country)')
+      .eq('follower_id', supaSession.user.id)
+    // follows = array of full profile objects (with id, pseudo, avatar_url…)
+    const profiles = (data || []).map(f => ({
+      id: f.following_id,
+      pseudo: f.profiles?.pseudo || f.following_id,
+      avatarUrl: f.profiles?.avatar_url || '',
+      points: f.profiles?.points || 0,
+      sexe: f.profiles?.sexe || 'homme',
+      country: f.profiles?.country || '',
+    }))
+    setFollows(profiles)
   }, [supaSession])
 
   const loadNotifs = useCallback(async () => {
@@ -420,7 +432,7 @@ export default function App() {
   async function toggleFollow(userId) {
     if (!supaSession || userId === supaSession.user.id) return
     const uid = supaSession.user.id
-    const isFollowing = follows.includes(userId)
+    const isFollowing = follows.some(f => f.id === userId)
     setFollows(f => isFollowing ? f.filter(id => id !== userId) : [...f, userId])
     try {
       if (isFollowing) {

@@ -459,7 +459,8 @@ function SupabaseBridge({ callbacks, externalAppState, isAuthenticated, external
     const { onSignUp, onSignIn, onLogout, addPost, toggleLike, addComment,
             toggleFollow, sendMessage, updateProfile, saveSession,
             updatePrograms, updatePinnedTrophies, updateTrophyDate, updateCountry,
-            createChallenge, respondChallenge, deleteChallenge } = callbacks;
+            createChallenge, respondChallenge, deleteChallenge,
+            createSoloChallenge, deleteSoloChallenge } = callbacks;
 
     // externalAppState already contains fresh localData (programs/exercises/sessionHistory)
     // because App.jsx builds appState from its own localData state.
@@ -506,6 +507,8 @@ function SupabaseBridge({ callbacks, externalAppState, isAuthenticated, external
           createChallenge,
           respondChallenge,
           deleteChallenge,
+          createSoloChallenge,
+          deleteSoloChallenge,
           deletePost: async (postId)=>{
             try{
               const {supabase:sb}=await import('./supabase.js');
@@ -711,7 +714,7 @@ function AppMain({appState,updateState,onLogout,overrides={}}){
   const addComment = overrides.addComment || _addComment;
   const toggleFollow=(uid)=>{
     // Optimistic local update
-    updateState(s=>({following:s.following.includes(uid)?s.following.filter(x=>x!==uid):[...s.following,uid]}));
+    updateState(s=>({following:s.following.some(f=>f.id===uid)?s.following.filter(f=>f.id!==uid):[...s.following,{id:uid,pseudo:'',avatarUrl:'',points:0}]}));
     // Supabase sync
     if(overrides.toggleFollow) overrides.toggleFollow(uid);
   };
@@ -919,7 +922,7 @@ function FeedTab({appState,updateState,addPost,onOpenProfile,toggleLike,addComme
   const commentRef=useRef(null);
 
   const filtered=posts.filter(p=>{
-    if(feedTab==="following"&&(p.userId==="me"||!following.includes(p.userId)))return false;
+    if(feedTab==="following"&&(p.userId==="me"||!following.some(f=>f.id===p.userId)))return false;
     if(search){const q=search.toLowerCase();if(!p.caption?.toLowerCase().includes(q)&&!p.pseudo?.toLowerCase().includes(q)&&!(p.tags||[]).some(t=>t.toLowerCase().includes(q)))return false;}
     if(rankFilter!=="all"){const tier=(p.rankTier||(p.rankName||"").split(" ")[0].toLowerCase()||"silver");if(tier!==rankFilter)return false;}
     return true;
@@ -1001,7 +1004,7 @@ function FeedTab({appState,updateState,addPost,onOpenProfile,toggleLike,addComme
 
 function PostCard({post,i,onProfile,toggleLike,onComment,following,toggleFollow,isMe}){
   const [showShare,setShowShare]=useState(false);
-  const isFollowing=following.includes(post.userId);
+  const isFollowing=following.some(f=>f.id===post.userId);
   return(
     <div className="fu" style={{marginBottom:18,animationDelay:`${Math.min(i,.5)*0.06}s`}}>
       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
@@ -1122,7 +1125,7 @@ function FullUserProfile({post,posts,following,toggleFollow,onClose,onMessage,my
   };
   const liveRank=getRank(displayStats.points);
   const rank=isMe&&myStats?liveRank:{name:post.rankName||"Silver I",color:post.rankColor||"#94A3B8",icon:post.rankIcon||"🥈",tier:post.rankTier||"silver"};
-  const isFollowing=following.includes(post.userId);
+  const isFollowing=following.some(f=>f.id===post.userId);
   const [profTab,setProfTab]=useState("posts");
   const [viewPost,setViewPost]=useState(null);
   const unlocked=TROPHIES.filter(t=>t.condition(displayStats));
@@ -1393,12 +1396,12 @@ function MessagesTab({conversations,user,av,updateState,appState,overrides,onOpe
                <div style={{fontSize:16,fontWeight:800,marginBottom:5}}>Aucun ami encore</div>
                <div style={{fontSize:12,color:"#333",fontFamily:"'Barlow',sans-serif"}}>Suis des personnes depuis le feed pour les retrouver ici</div>
              </div>
-            :following.map((uid)=>{
-              const c=conversations?.find(cv=>cv.withId===uid||cv.id===uid);
-              const pseudo=c?.withPseudo||uid;
-              const avatarVal=c?.avatarVal||"";
-              const avatarFb=c?.avatarFallback||"👤";
-              const profileObj={userId:uid,pseudo,avatarVal,avatarFallback:avatarFb,rankName:"",rankColor:"#888",rankTier:"silver",points:0};
+            :following.map((friend)=>{
+              const uid=friend.id;
+              const pseudo=friend.pseudo||uid;
+              const avatarVal=friend.avatarUrl||"";
+              const avatarFb=friend.pseudo?.[0]?.toUpperCase()||"👤";
+              const profileObj={userId:uid,pseudo,avatarVal,avatarFallback:avatarFb,rankName:"",rankColor:"#888",rankTier:"silver",points:friend.points||0};
               return(
                 <div key={uid} style={{display:"flex",alignItems:"center",gap:12,padding:"12px 0",borderBottom:"1px solid #1A1A24"}}>
                   <div onClick={()=>onOpenProfile&&onOpenProfile(profileObj)} style={{cursor:"pointer",flexShrink:0}}>
@@ -2737,7 +2740,7 @@ function ProfileTab({appState,updateState,rank,imc,av,onEdit,onLogout,posts,chec
       <div style={{color:"#555",fontSize:11,fontFamily:"'Barlow',sans-serif",marginBottom:12,marginTop:4}}>{user.age} ans · {user.sexe} · {user.poids}kg · {user.taille}cm{imc?` · IMC ${imc}`:""}</div>
 
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6,marginBottom:12}}>
-        {[{l:"Posts",v:myPosts.length},{l:"Abonnés",v:stats.followers||0},{l:"Abonnements",v:following.length}].map((s,i)=>(
+        {[{l:"Posts",v:myPosts.length},{l:"Abonnés",v:stats.followers||0},{l:"Abonnements",v:(appState.following||[]).length}].map((s,i)=>(
           <div key={i} style={{background:"#0D0D14",borderRadius:9,padding:"9px 6px",textAlign:"center"}}><div style={{fontSize:18,fontWeight:900}}>{s.v}</div><div style={{color:"#888",fontSize:10,fontWeight:600}}>{s.l}</div></div>
         ))}
       </div>
