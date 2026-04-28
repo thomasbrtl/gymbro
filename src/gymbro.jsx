@@ -830,7 +830,7 @@ function AppMain({appState,updateState,onLogout,overrides={}}){
         {tab==="messages" && <MessagesTab conversations={conversations} user={user} av={av} updateState={updateState} appState={appState} overrides={overrides} onOpenProfile={p=>setViewProfile(p)}/>}
         {tab==="program"  && <ProgramTab appState={appState} updateState={updateState} saveSession={saveSession}/>}
         {tab==="trophies" && <TrophiesTab stats={stats} user={user} updateState={updateState}/>}
-        {tab==="ranked"   && <RankedTab appState={{...appState,_openProfile:(p)=>setViewProfile(p)}} updateState={updateState} rank={rank} nextRank={nextRank} rankPct={rankPct} stats={stats}/>}
+        {tab==="ranked"   && <RankedTab appState={{...appState,_openProfile:(p)=>setViewProfile(p)}} updateState={updateState} rank={rank} nextRank={nextRank} rankPct={rankPct} stats={stats} giveXP={giveXP}/>}
         {tab==="profile"  && <ProfileTab appState={appState} updateState={updateState} rank={rank} imc={imc} av={av} onEdit={()=>setEditProfileOpen(true)} onLogout={onLogout} posts={posts} checkTrophies={checkTrophies} deletePost={overrides.deletePost} onOpenPost={(p)=>setViewPostGlobal(p)} overrides={overrides}/>}
       </div>
 
@@ -1262,21 +1262,40 @@ function MessagesTab({conversations,user,av,updateState,appState,overrides,onOpe
   const sendMsg=()=>{
     if(!msgText.trim()||!conv)return;
     const text=msgText.trim(); setMsgText("");
+    // Optimistic local update
     updateState(s=>{
       const convs=(s.conversations||[]).map(cv=>cv.id!==conv.id?cv:{...cv,messages:[...cv.messages,{id:genId(),from:"me",text,ts:Date.now()}]});
       return {conversations:convs};
     });
+    // Send via Supabase bridge
     if(conv.withId&&conv.withId!=="me"){
       window.dispatchEvent(new CustomEvent("gymbro_sendmsg",{detail:{toId:conv.withId,toPseudo:conv.withPseudo,avatarVal:conv.avatarVal||"",avatarFb:conv.avatarFallback||"👤",text}}));
+    } else if(!conv.withId){
+      // withId missing — try using conv.id as user id
+      const guessedId=conv.id;
+      if(guessedId&&guessedId!=="me"){
+        window.dispatchEvent(new CustomEvent("gymbro_sendmsg",{detail:{toId:guessedId,toPseudo:conv.withPseudo,avatarVal:conv.avatarVal||"",avatarFb:conv.avatarFallback||"👤",text}}));
+      }
     }
   };
 
   const launchDefi=async()=>{
-    if(!selPreset||!showDefiModal||!overrides?.createChallenge)return;
+    if(!selPreset)return;
+    if(!showDefiModal?.uid){console.error("No opponent uid"); return;}
+    if(!overrides?.createChallenge){console.error("createChallenge not in overrides"); return;}
     try{
-      await overrides.createChallenge({opponentId:showDefiModal.uid,type:selPreset.type,exercise:selPreset.exercise,title:selPreset.title,durationDays:selPreset.durationDays});
+      await overrides.createChallenge({
+        opponentId:showDefiModal.uid,
+        type:selPreset.type,
+        exercise:selPreset.exercise||null,
+        title:selPreset.title,
+        durationDays:selPreset.durationDays,
+      });
       setShowDefiModal(null);setSelPreset(null);
-    }catch(e){console.error("createChallenge:",e);}
+    }catch(e){
+      console.error("createChallenge error:",e);
+      alert("Erreur: "+((e?.message)||"impossible de lancer le défi"));
+    }
   };
 
   const challenges=appState?.challenges||[];
@@ -2363,7 +2382,8 @@ function RankedTab({appState,updateState,rank,nextRank,rankPct,stats,giveXP}){
   const markDone=(id,xpAmount)=>{
     if(completedIds.includes(id))return;
     saveWeekData({[weekKey+'_done']:[...completedIds,id]});
-    if(giveXP) giveXP(xpAmount,"Défi hebdo accompli ! 🎯","⚡");
+    // XP uniquement au clic RÉCLAMER
+    if(typeof giveXP==="function") giveXP(xpAmount,"Défi hebdo accompli ! 🎯","⚡");
     else updateState(s=>({stats:{...s.stats,points:(s.stats.points||0)+xpAmount}}));
   };
 
@@ -2371,7 +2391,26 @@ function RankedTab({appState,updateState,rank,nextRank,rankPct,stats,giveXP}){
   const weekEarly=(appState.sessionHistory||[]).filter(h=>h.date>=weekStart&&new Date(h.date).getHours()<7).length;
   const weekNight=(appState.sessionHistory||[]).filter(h=>h.date>=weekStart&&new Date(h.date).getHours()>=22).length;
   const weekPosts=(appState.posts||[]).filter(p=>p.userId==="me"&&p.ts>=weekStart).length;
-  const weekPRs=(appState.sessionHistory||[]).filter(h=>h.date>=weekStart&&(h.prCount||0)>0).reduce((sum,h)=>sum+(h.prCount||0),0);
+  // Count PRs this week: from session history entries that have prCount, OR from recent sessions
+  const weekPRs=Math.max(
+    (appState.sessionHistory||[]).filter(h=>h.date>=weekStart&&(h.prCount||0)>0).reduce((sum,h)=>sum+(h.prCount||0),0),
+    // Fallback: count sessions this week that had at least one exercise beating prev max
+    (appState.sessionHistory||[]).filter(h=>h.date>=weekStart).reduce((sum,h)=>{
+      if(h.prCount&&h.prCount>0)return sum+h.prCount;
+      // Check exercises in session vs history before it
+      let found=0;
+      (h.exercises||[]).forEach(ex=>{
+        if(!ex.sets?.length)return;
+        const allPrev=(appState.exercises||{})[ex.name]||[];
+        const prevEntries=allPrev.filter(e2=>e2.date<h.date);
+        if(!prevEntries.length)return;
+        const prevMax=prevEntries.flatMap(e2=>e2.sets.map(s=>s.weight||0)).reduce((a,b)=>Math.max(a,b),0);
+        const curMax=ex.sets.map(s=>s.weight||0).reduce((a,b)=>Math.max(a,b),0);
+        if(curMax>prevMax)found++;
+      });
+      return sum+found;
+    },0)
+  );
   function getChallengeProgress(ch){
     switch(ch.type){
       case 'sessions':    return weekSessions;
@@ -2471,24 +2510,24 @@ function RankedTab({appState,updateState,rank,nextRank,rankPct,stats,giveXP}){
         {topLb.length>=3&&(
           <div style={{display:"flex",alignItems:"flex-end",justifyContent:"center",gap:6,marginBottom:16,padding:"0 4px"}}>
             {/* 2nd */}
-            <PodiumCard entry={topLb[1]} pos={2} appState={appState}/>
+            <PodiumCard entry={topLb[1]} pos={2} appState={appState} onOpenProfile={appState._openProfile}/>
             {/* 1st */}
-            <PodiumCard entry={topLb[0]} pos={1} appState={appState}/>
+            <PodiumCard entry={topLb[0]} pos={1} appState={appState} onOpenProfile={appState._openProfile}/>
             {/* 3rd */}
-            <PodiumCard entry={topLb[2]} pos={3} appState={appState}/>
+            <PodiumCard entry={topLb[2]} pos={3} appState={appState} onOpenProfile={appState._openProfile}/>
           </div>
         )}
 
         {/* Positions 4-5 */}
         {topLb.slice(3).map((e,i)=>(
-          <LeaderboardRow key={e.id} entry={e} pos={i+4} appState={appState}/>
+          <LeaderboardRow key={e.id} entry={e} pos={i+4} appState={appState} onOpenProfile={appState._openProfile}/>
         ))}
 
         {/* My position if not in top 5 */}
         {myPos>4&&(
           <>
             <div style={{textAlign:"center",color:"#333",fontSize:11,padding:"6px 0"}}>• • •</div>
-            <LeaderboardRow entry={lb[myPos]} pos={myPos+1} appState={appState} highlight/>
+            <LeaderboardRow entry={lb[myPos]} pos={myPos+1} appState={appState} highlight onOpenProfile={appState._openProfile}/>
           </>
         )}
 
@@ -2534,13 +2573,13 @@ function RankedTab({appState,updateState,rank,nextRank,rankPct,stats,giveXP}){
 
               {/* Rank tiers grouped */}
               {[
-                {tier:"bronze",  label:"BRONZE",   color:"#CD7F32", ranks:RANKS.filter(r=>r.tier==="bronze")},
                 {tier:"silver",  label:"ARGENT",   color:"#94A3B8", ranks:RANKS.filter(r=>r.tier==="silver")},
                 {tier:"gold",    label:"OR",        color:"#FBBF24", ranks:RANKS.filter(r=>r.tier==="gold")},
                 {tier:"platinum",label:"PLATINE",  color:"#67E8F9", ranks:RANKS.filter(r=>r.tier==="platinum")},
                 {tier:"diamond", label:"DIAMANT",  color:"#A78BFA", ranks:RANKS.filter(r=>r.tier==="diamond")},
+                {tier:"emerald", label:"ÉMERAUDE", color:"#34D399", ranks:RANKS.filter(r=>r.tier==="emerald")},
                 {tier:"elite",   label:"ÉLITE",    color:"#FF4D4D", ranks:RANKS.filter(r=>r.tier==="elite")},
-              ].map(({tier,label,color,ranks})=>{
+              ].filter(g=>g.ranks.length>0).map(({tier,label,color,ranks})=>{
                 const isCurTier=rank.tier===tier;
                 const isPastTier=ranks.every(r=>stats.points>r.min);
                 return(
@@ -2589,7 +2628,7 @@ function RankedTab({appState,updateState,rank,nextRank,rankPct,stats,giveXP}){
 }
 
 // ── Podium Card (top 3) ──
-function PodiumCard({entry, pos, appState}){
+function PodiumCard({entry, pos, appState, onOpenProfile}){
   const heights={1:90,2:70,3:60};
   const h=heights[pos]||60;
   const colors={1:"#FFD700",2:"#94A3B8",3:"#CD7F32"};
@@ -2598,8 +2637,8 @@ function PodiumCard({entry, pos, appState}){
   return(
     <div style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",maxWidth:120}}>
       {/* Avatar */}
-      <div style={{position:"relative",marginBottom:6}}>
-        <div style={{width:pos===1?52:44,height:pos===1?52:44,borderRadius:"50%",border:`3px solid ${col}`,overflow:"hidden",background:"#1A1A24",display:"flex",alignItems:"center",justifyContent:"center",fontSize:pos===1?22:18,boxShadow:`0 0 ${pos===1?16:10}px ${col}55`}}>
+      <div style={{position:"relative",marginBottom:6}} onClick={()=>!entry.me&&onOpenProfile&&onOpenProfile({userId:entry.id,pseudo:entry.u,avatarVal:entry.avatarUrl||"",avatarFallback:entry.av,rankName:entry.r.name,rankColor:entry.r.color,rankTier:entry.r.tier,points:entry.pts})} style2={{cursor:!entry.me?"pointer":"default"}}>
+        <div style={{width:pos===1?52:44,height:pos===1?52:44,borderRadius:"50%",border:`3px solid ${col}`,overflow:"hidden",background:"#1A1A24",display:"flex",alignItems:"center",justifyContent:"center",fontSize:pos===1?22:18,boxShadow:`0 0 ${pos===1?16:10}px ${col}55`,cursor:!entry.me?"pointer":"default"}}>
           {entry.avatarUrl&&(entry.avatarUrl.startsWith("http")||entry.avatarUrl.startsWith("data:"))
             ?<img src={entry.avatarUrl} style={{width:"100%",height:"100%",objectFit:"cover"}} alt=""/>
             :<span>{entry.av}</span>}
@@ -2624,9 +2663,9 @@ function PodiumCard({entry, pos, appState}){
 }
 
 // ── Leaderboard Row (pos 4+) ──
-function LeaderboardRow({entry, pos, appState, highlight}){
+function LeaderboardRow({entry, pos, appState, highlight, onOpenProfile}){
   return(
-    <div style={{display:"flex",alignItems:"center",gap:9,padding:"9px 12px",background:highlight||entry.me?"#FF3D3D0A":"#0D0D14",borderRadius:10,marginBottom:5,border:highlight||entry.me?"1px solid #FF3D3D33":"1px solid transparent"}}>
+    <div onClick={()=>!entry.me&&onOpenProfile&&onOpenProfile({userId:entry.id,pseudo:entry.u,avatarVal:entry.avatarUrl||"",avatarFallback:entry.av,rankName:entry.r.name,rankColor:entry.r.color,rankTier:entry.r.tier,points:entry.pts})} style={{display:"flex",alignItems:"center",gap:9,padding:"9px 12px",background:highlight||entry.me?"#FF3D3D0A":"#0D0D14",borderRadius:10,marginBottom:5,border:highlight||entry.me?"1px solid #FF3D3D33":"1px solid transparent",cursor:!entry.me?"pointer":"default"}}>
       <div style={{width:24,fontWeight:900,fontSize:12,textAlign:"center",color:"#444",flexShrink:0}}>#{pos}</div>
       <div style={{width:32,height:32,borderRadius:"50%",background:"#1A1A24",border:`2px solid ${entry.r.color}44`,overflow:"hidden",display:"flex",alignItems:"center",justifyContent:"center",fontSize:15,flexShrink:0}}>
         {entry.avatarUrl&&(entry.avatarUrl.startsWith("http")||entry.avatarUrl.startsWith("data:"))

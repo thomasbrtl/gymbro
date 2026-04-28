@@ -521,7 +521,9 @@ export default function App() {
 
   // ══════════════════════ CHALLENGES ══
   async function createChallenge({ opponentId, type, exercise, title, durationDays }) {
-    if (!supaSession || !profile) return
+    if (!supaSession) throw new Error('Tu dois être connecté')
+    if (!profile) throw new Error('Profil non chargé, réessaie dans quelques secondes')
+    if (!opponentId) throw new Error('Adversaire introuvable')
     const endDate = new Date(Date.now() + durationDays * 86400000).toISOString()
     const { error } = await supabase.from('challenges').insert({
       challenger_id: supaSession.user.id,
@@ -531,7 +533,7 @@ export default function App() {
       challenger_score: 0, opponent_score: 0,
       end_date: endDate,
     })
-    if (error) throw error
+    if (error) throw new Error(error.message)
     // Notif in-app
     supabase.from('notifications').insert({
       user_id: opponentId, from_id: supaSession.user.id, type: 'challenge',
