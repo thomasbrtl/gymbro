@@ -1602,7 +1602,18 @@ function ProgramTab({appState,updateState,saveSession}){
       onCancel={()=>{setActiveSession(null);setView("list");}}/>;
   }
   if(view==="progress")return <ProgressView exercises={exercises} onBack={()=>setView("list")} selEx={selEx} setSelEx={setSelEx}/>;
-  if(view==="history") return <SessionHistory sessionHistory={sessionHistory} onBack={()=>setView("list")}/>;
+  if(view==="history") return <SessionHistory sessionHistory={sessionHistory} onBack={()=>setView("list")} onDelete={(idOrIdx)=>{
+    updateState(s=>{
+      const newHist=(s.sessionHistory||[]).filter((h,i)=>h.id!==idOrIdx&&i!==idOrIdx);
+      return {sessionHistory:newHist};
+    });
+    // Also sync to Supabase if id is a real uuid
+    if(typeof idOrIdx==="string"&&idOrIdx.length>8){
+      import('./supabase.js').then(({supabase:sb})=>{
+        sb.from('session_history').delete().eq('id',idOrIdx).then(()=>{}).catch(()=>{});
+      }).catch(()=>{});
+    }
+  }}/>;
   if(view==="new")     return <NewProgramWizard onDone={prog=>{updateState(s=>({programs:[...s.programs,prog]}));setView("list");}} onCancel={()=>setView("list")}/>;
   if(view==="body")    return <MuscleMap exercises={exercises} sessionHistory={sessionHistory} onBack={()=>setView("list")}/>;
 
@@ -1749,13 +1760,48 @@ function NewProgramWizard({onDone,onCancel}){
 // ══════════════════════ ACTIVE SESSION ══
 function ActiveSession({session,onFinish,onCancel}){
   const {day}=session;
-  const [exercises,setExercises]=useState(()=>day.exercises.map(ex=>({name:ex.name,sets:Array.from({length:ex.sets},()=>({reps:"",weight:"",done:false}))})));
-  const [time,setTime]=useState(0);
+  const [exercises,setExercises]=useState(()=>{
+    try{
+      const s=localStorage.getItem('gymbro_active_session');
+      if(s){const d=JSON.parse(s);if(d.exercises&&d.day?.name===day.name)return d.exercises;}
+    }catch{}
+    return day.exercises.map(ex=>({name:ex.name,sets:Array.from({length:ex.sets},()=>({reps:"",weight:"",done:false}))}));
+  });
+  const [time,setTime]=useState(()=>{
+    try{ const s=localStorage.getItem('gymbro_active_session'); if(s){const d=JSON.parse(s);if(d.startTs)return Math.floor((Date.now()-d.startTs)/1000);} }catch{}
+    return 0;
+  });
   const [showAddExo,setShowAddExo]=useState(false);
   const [exoSearch,setExoSearch]=useState("");
   const [selCat,setSelCat]=useState("Poitrine");
   const timerRef=useRef();
-  useEffect(()=>{timerRef.current=setInterval(()=>setTime(t=>t+1),1000);return()=>clearInterval(timerRef.current);},[]);
+  const startTsRef=useRef(Date.now()-time*1000);
+
+  // Persist session state to localStorage so background doesn't lose it
+  useEffect(()=>{
+    try{
+      localStorage.setItem('gymbro_active_session',JSON.stringify({startTs:startTsRef.current,day:session.day,program:session.program}));
+    }catch{}
+  },[session]);
+
+  // Timer: use real elapsed time to stay accurate in background
+  useEffect(()=>{
+    timerRef.current=setInterval(()=>{
+      setTime(Math.floor((Date.now()-startTsRef.current)/1000));
+    },1000);
+    return()=>{
+      clearInterval(timerRef.current);
+      // Clear persisted session on unmount only if finishing
+    };
+  },[]);
+
+  // Persist exercises state too
+  useEffect(()=>{
+    try{
+      const s=localStorage.getItem('gymbro_active_session');
+      if(s){const d=JSON.parse(s); localStorage.setItem('gymbro_active_session',JSON.stringify({...d,exercises}));}
+    }catch{}
+  },[exercises]);
   const fmt=s=>`${String(Math.floor(s/60)).padStart(2,"0")}:${String(s%60).padStart(2,"0")}`;
 
   const totalSets=exercises.reduce((a,e)=>a+e.sets.length,0);
@@ -1769,7 +1815,14 @@ function ActiveSession({session,onFinish,onCancel}){
   const addExo=name=>{setExercises(prev=>[...prev,{name,sets:[{reps:"",weight:"",done:false},{reps:"",weight:"",done:false},{reps:"",weight:"",done:false}]}]);setShowAddExo(false);};
 
   const finish=()=>{
+    // Check for exercises with no validated sets
+    const emptyExos=exercises.filter(ex=>ex.sets.filter(s=>s.done).length===0);
+    if(emptyExos.length>0){
+      const names=emptyExos.map(e=>e.name).join(", ");
+      if(!window.confirm(`⚠️ Ces exercices n'ont aucune série validée :\n${names}\n\nTerminer quand même ?`)) return;
+    }
     const result=exercises.map(ex=>({name:ex.name,sets:ex.sets.filter(s=>s.done).map(s=>({reps:Number(s.reps)||0,weight:Number(s.weight)||0}))}));
+    try{localStorage.removeItem('gymbro_active_session');}catch{}
     onFinish(result,time);
   };
 
@@ -1812,7 +1865,7 @@ function ActiveSession({session,onFinish,onCancel}){
       <button onClick={()=>setShowAddExo(true)} style={{width:"100%",padding:"9px",background:"#FF3D3D12",border:"1px dashed #FF3D3D44",borderRadius:8,color:"#FF3D3D",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit",marginBottom:14}}>+ Ajouter exercice</button>
 
       <div style={{display:"flex",gap:9}}>
-        <button onClick={onCancel} className="btn-g" style={{flex:1,padding:"12px 0",fontSize:13}}>Annuler</button>
+        <button onClick={()=>{try{localStorage.removeItem('gymbro_active_session');}catch{}onCancel();}} className="btn-g" style={{flex:1,padding:"12px 0",fontSize:13}}>Annuler</button>
         <button onClick={finish} style={{flex:2,padding:"12px 0",background:"linear-gradient(135deg,#22C55E,#16A34A)",border:"none",color:"#FFF",borderRadius:10,fontSize:14,fontWeight:900,cursor:"pointer",fontFamily:"inherit"}}>✓ TERMINER ({fmt(time)})</button>
       </div>
 
@@ -1836,7 +1889,7 @@ function ActiveSession({session,onFinish,onCancel}){
 }
 
 // ══════════════════════ SESSION HISTORY ══
-function SessionHistory({sessionHistory,onBack}){
+function SessionHistory({sessionHistory,onBack,onDelete}){
   const [detail,setDetail]=useState(null);
   const fmt=s=>`${String(Math.floor(s/60)).padStart(2,"0")}:${String(s%60).padStart(2,"0")}`;
 
@@ -1889,7 +1942,7 @@ function SessionHistory({sessionHistory,onBack}){
         <div style={{textAlign:"center",padding:"50px 20px",color:"#444"}}><div style={{fontSize:38,marginBottom:10}}>📅</div><div style={{fontSize:15,fontWeight:800,marginBottom:5}}>Aucune séance</div><div style={{fontSize:12,fontFamily:"'Barlow',sans-serif"}}>Tes séances apparaîtront ici.</div></div>
       ):(
         sessionHistory.map((h,i)=>(
-          <div key={h.id||i} className="card" style={{padding:13,marginBottom:10,cursor:"pointer"}} onClick={()=>setDetail(h)}>
+          <div key={h.id||i} className="card" style={{padding:13,marginBottom:10,cursor:"pointer",position:"relative"}} onClick={()=>setDetail(h)}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:8}}>
               <div>
                 <div style={{fontSize:15,fontWeight:800}}>{h.dayName}</div>
@@ -1898,6 +1951,7 @@ function SessionHistory({sessionHistory,onBack}){
               <div style={{textAlign:"right"}}>
                 <div style={{fontSize:13,fontWeight:700,color:"#FF3D3D"}}>{h.durationSec?fmt(h.durationSec):"—"}</div>
                 <div style={{color:"#555",fontSize:11}}>{new Date(h.date).toLocaleDateString("fr",{day:"numeric",month:"short",year:"numeric"})}</div>
+                {onDelete&&<button onClick={e=>{e.stopPropagation();if(window.confirm("Supprimer cette séance ?"))onDelete(h.id||i);}} style={{background:"none",border:"none",color:"#444",fontSize:13,cursor:"pointer",marginTop:2,display:"block",marginLeft:"auto"}}>🗑</button>}
               </div>
             </div>
             <div style={{display:"flex",flexWrap:"wrap",gap:5,marginBottom:6}}>
@@ -2387,7 +2441,9 @@ function RankedTab({appState,updateState,rank,nextRank,rankPct,stats,giveXP}){
     else updateState(s=>({stats:{...s.stats,points:(s.stats.points||0)+xpAmount}}));
   };
 
-  const weekSessions=(appState.sessionHistory||[]).filter(h=>h.date>=weekStart).length;
+  // 1 séance par jour pour les défis hebdo
+  const weekSessionDays=new Set((appState.sessionHistory||[]).filter(h=>h.date>=weekStart).map(h=>new Date(h.date).toDateString()));
+  const weekSessions=weekSessionDays.size;
   const weekEarly=(appState.sessionHistory||[]).filter(h=>h.date>=weekStart&&new Date(h.date).getHours()<7).length;
   const weekNight=(appState.sessionHistory||[]).filter(h=>h.date>=weekStart&&new Date(h.date).getHours()>=22).length;
   const weekPosts=(appState.posts||[]).filter(p=>p.userId==="me"&&p.ts>=weekStart).length;
@@ -2780,6 +2836,8 @@ function PostViewModal({post,onClose,toggleLike,addComment,myPseudo,myAvatarVal,
 // ══════════════════════ PROFILE ══
 function ProfileTab({appState,updateState,rank,imc,av,onEdit,onLogout,posts,checkTrophies,deletePost,onOpenPost,overrides}){
   const {user,stats,following=[]}=appState;
+  // Sessions: sessionHistory.length is always up to date (local), stats.sessions may lag (Supabase)
+  const sessionCount=Math.max(stats.sessions||0,(appState.sessionHistory||[]).length);
   const referrals=appState.referrals||{code:"",list:[],count:0};
   const soloChallenge=appState.soloChallenge||null;
   const [profTab,setProfTab]=useState("posts");
@@ -2872,7 +2930,7 @@ function ProfileTab({appState,updateState,rank,imc,av,onEdit,onLogout,posts,chec
       <div className="card" style={{padding:13,marginBottom:12}}>
         <div style={{fontWeight:800,fontSize:12,marginBottom:9,letterSpacing:".04em"}}>💪 MON PROFIL</div>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:7}}>
-          {[{l:"Poids",v:`${user.poids} kg`},{l:"Taille",v:`${user.taille} cm`},{l:"Âge",v:`${user.age} ans`},{l:"IMC",v:imc||"—"},{l:"Séances",v:`${stats.sessions} 🏋️`},{l:"PRs",v:`${stats.prs} 💪`}].map((s,i)=>(
+          {[{l:"Poids",v:`${user.poids} kg`},{l:"Taille",v:`${user.taille} cm`},{l:"Âge",v:`${user.age} ans`},{l:"IMC",v:imc||"—"},{l:"Séances",v:`${sessionCount} 🏋️`},{l:"PRs",v:`${stats.prs} 💪`}].map((s,i)=>(
             <div key={i} style={{background:"#13131A",borderRadius:7,padding:"8px 9px"}}><div style={{color:"#444",fontSize:9,marginBottom:1}}>{s.l}</div><div style={{fontWeight:800,fontSize:13}}>{s.v}</div></div>
           ))}
         </div>
@@ -2925,7 +2983,7 @@ function ProfileTab({appState,updateState,rank,imc,av,onEdit,onLogout,posts,chec
       {profTab==="stats"&&(
         <div style={{paddingBottom:16}}>
           {[
-            {l:"Séances totales",v:stats.sessions,max:100,c:"#FF3D3D"},
+            {l:"Séances totales",v:sessionCount,max:100,c:"#FF3D3D"},
             {l:"Streak actuel",v:stats.streak,max:30,u:"jours",c:"#22C55E"},
             {l:"Posts publiés",v:stats.posts,max:50,c:"#3B82F6"}
           ].map((s,i)=>(

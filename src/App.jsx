@@ -347,7 +347,7 @@ export default function App() {
       const code = referralCode.trim().toUpperCase()
       const { data: referrerProf } = await supabase.from('profiles').select('id').eq('referral_code', code).maybeSingle()
       if (referrerProf) {
-        await supabase.from('referrals').insert({ referrer_id: referrerProf.id, referred_id: uid, status: 'pending' }).catch(() => {})
+        try { await supabase.from('referrals').insert({ referrer_id: referrerProf.id, referred_id: uid, status: 'pending' }) } catch(e) {}
       }
     }
     await loadProfile(uid); await loadFeed(); await loadFollows()
@@ -407,7 +407,7 @@ export default function App() {
       } else {
         await supabase.from('likes').insert({ post_id: postId, user_id: uid })
         if (post.userId !== uid) {
-          supabase.from('notifications').insert({ user_id: post.userId, from_id: uid, type: 'like', post_id: postId }).catch(() => {})
+          supabase.from('notifications').insert({ user_id: post.userId, from_id: uid, type: 'like', post_id: postId }).then(()=>{}).catch(()=>{})
           sendPushTo(post.userId, '❤️ Nouveau like', `@${profile?.pseudo} a liké ta photo`, 'like')
         }
       }
@@ -423,7 +423,7 @@ export default function App() {
     await supabase.from('comments').insert({ post_id: postId, user_id: supaSession.user.id, pseudo: profile.pseudo, text })
     const post = feed.find(p => p.id === postId)
     if (post && post.userId !== supaSession.user.id) {
-      supabase.from('notifications').insert({ user_id: post.userId, from_id: supaSession.user.id, type: 'comment', post_id: postId }).catch(() => {})
+      supabase.from('notifications').insert({ user_id: post.userId, from_id: supaSession.user.id, type: 'comment', post_id: postId }).then(()=>{}).catch(()=>{})
       sendPushTo(post.userId, '💬 Nouveau commentaire', `@${profile.pseudo} a commenté ton post`, 'comment')
     }
     loadFeed()
@@ -439,7 +439,7 @@ export default function App() {
         await supabase.from('follows').delete().eq('follower_id', uid).eq('following_id', userId)
       } else {
         await supabase.from('follows').insert({ follower_id: uid, following_id: userId })
-        supabase.from('notifications').insert({ user_id: userId, from_id: uid, type: 'follow' }).catch(() => {})
+        supabase.from('notifications').insert({ user_id: userId, from_id: uid, type: 'follow' }).then(()=>{}).catch(()=>{})
         sendPushTo(userId, '👥 Nouvel abonné', `@${profile?.pseudo} te suit maintenant`, 'follow')
       }
     } catch(e) {
@@ -537,7 +537,7 @@ export default function App() {
     // Notif in-app
     supabase.from('notifications').insert({
       user_id: opponentId, from_id: supaSession.user.id, type: 'challenge',
-    }).catch(() => {})
+    }).then(()=>{}).catch(()=>{})
     // Push notification
     sendPushTo(opponentId, '⚡ Nouveau défi !', `@${profile.pseudo} te lance un défi : ${title}`, 'challenge')
     await loadChallenges()
@@ -707,7 +707,7 @@ export default function App() {
         await supabase.from('profiles').update({ points: (profile?.points||0) + xpBonus }).eq('id', supaSession.user.id)
         sendPushTo(supaSession.user.id, '🎯 Défi solo accompli !', `+${xpBonus} XP — ${sc.title}`, 'solo_success')
         // In-app notif via supabase notifications table
-        supabase.from('notifications').insert({ user_id: supaSession.user.id, from_id: supaSession.user.id, type: 'solo_success' }).catch(()=>{})
+        supabase.from('notifications').insert({ user_id: supaSession.user.id, from_id: supaSession.user.id, type: 'solo_success' }).then(()=>{}).catch(()=>{})
       }
       loadSoloChallenge()
     }
