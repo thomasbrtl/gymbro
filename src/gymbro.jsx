@@ -482,12 +482,15 @@ function SupabaseBridge({ callbacks, externalAppState, isAuthenticated, external
 
     const wrappedAddPost = async (p) => { await addPost(p); };
     const wrappedSaveSession = async (dayName, programName, result, durationSec) => {
-      // saveSession in App.jsx calls saveLocal internally — which updates App.jsx's
-      // localData state — which triggers a re-render of appState — which flows back
-      // into externalAppState here. The onLocalUpdate callback is a belt-and-suspenders.
-      await saveSession(dayName, programName, result, durationSec, (localPatch) => {
+      const res = await saveSession(dayName, programName, result, durationSec, (localPatch) => {
         if (externalSaveLocal) externalSaveLocal(localPatch);
       });
+      // XP toasts — fire after session saved
+      if (res?.xpGain > 0) {
+        if (res.isNewDay) giveXP(50, "Séance complétée !", "🏋️");
+        if (res.isEarly && res.isNewDay) giveXP(75, "Séance Early Bird 🌅", "🌅");
+        if (res.prCount > 0) giveXP(res.prCount * 150, res.prCount + " nouveau" + (res.prCount > 1 ? "x" : "") + " PR !", "💪");
+      }
     };
 
     return (
@@ -1412,7 +1415,15 @@ function MessagesTab({conversations,user,av,updateState,appState,overrides,onOpe
                     <div style={{fontSize:11,color:"#555",marginTop:2,fontFamily:"'Barlow',sans-serif"}}>voir profil →</div>
                   </div>
                   <div style={{display:"flex",gap:7,flexShrink:0}}>
-                    <button onClick={()=>{if(c)setOpenConv(c.id);}} style={{background:"#13131A",border:"1px solid #1E1E2E",color:"#888",borderRadius:9,padding:"8px 10px",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>
+                    <button onClick={()=>{
+                      if(c){ setOpenConv(c.id); }
+                      else {
+                        // No existing conv — create one locally and open it
+                        const newConv={id:uid,withId:uid,withPseudo:pseudo,avatarVal,avatarFallback:avatarFb,messages:[]};
+                        updateState(s=>({conversations:[...(s.conversations||[]),newConv]}));
+                        setOpenConv(uid);
+                      }
+                    }} style={{background:"#13131A",border:"1px solid #1E1E2E",color:"#888",borderRadius:9,padding:"8px 10px",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>
                       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
                     </button>
                     <button onClick={()=>setShowDefiModal({uid,pseudo,avatarVal,avatarFb})} style={{background:"#FF3D3D14",border:"1px solid #FF3D3D44",color:"#FF6B6B",borderRadius:9,padding:"7px 12px",fontFamily:"'Barlow Condensed',sans-serif",fontSize:12,fontWeight:800,cursor:"pointer",letterSpacing:".04em"}}>
@@ -2320,163 +2331,107 @@ function TrophiesTab({stats,user,updateState}){
   );
 }
 
-// ══════════════════════ RANKED ══
+
 // ══════════════════════ WEEKLY CHALLENGES ══
 const ALL_CHALLENGES = [
-  {id:"wc_sess3",  icon:"🏋️", title:"Machine de guerre",    desc:"Complète 3 séances cette semaine",  xp:200, type:"sessions",   target:3},
-  {id:"wc_sess5",  icon:"🔥", title:"Semaine de feu",        desc:"Complète 5 séances cette semaine",  xp:400, type:"sessions",   target:5},
-  {id:"wc_early",  icon:"🌅", title:"Lève-tôt",              desc:"1 séance avant 7h cette semaine",   xp:150, type:"early",      target:1},
-  {id:"wc_pr",     icon:"💪", title:"Nouveau record",        desc:"Bats 1 PR sur un grand exercice",   xp:250, type:"prs",        target:1},
-  {id:"wc_post2",  icon:"📸", title:"Créateur de contenu",   desc:"Publie 2 posts cette semaine",      xp:150, type:"posts",      target:2},
-  {id:"wc_post5",  icon:"🎥", title:"Influenceur",           desc:"Publie 5 posts cette semaine",      xp:300, type:"posts",      target:5},
-  {id:"wc_vol",    icon:"🏆", title:"Semaine intense",       desc:"Complète 4 séances cette semaine",  xp:350, type:"sessions",   target:4},
-  {id:"wc_streak", icon:"⚡", title:"Sans faille",           desc:"Aucun jour sans séance (5j)",       xp:500, type:"streak_week",target:5},
-  {id:"wc_night",  icon:"🌙", title:"Hibou de nuit",         desc:"1 séance après 22h cette semaine",  xp:150, type:"night",      target:1},
-  {id:"wc_like10", icon:"❤️", title:"Populaire",             desc:"Reçois 10 likes sur tes posts",     xp:200, type:"likes",      target:10},
-  {id:"wc_follow", icon:"👥", title:"Réseau",                desc:"Suis 3 nouvelles personnes",        xp:100, type:"follows",    target:3},
-  {id:"wc_sess2",  icon:"💎", title:"Démarrage solide",      desc:"Complète 2 séances cette semaine",  xp:100, type:"sessions",   target:2},
-  {id:"wc_pr3",    icon:"🚀", title:"Semaine de records",    desc:"Bats 3 PRs cette semaine",          xp:500, type:"prs",        target:3},
-  {id:"wc_comment",icon:"💬", title:"Coach",                 desc:"Commente 5 posts cette semaine",    xp:100, type:"comments",   target:5},
-  {id:"wc_morn3",  icon:"☀️", title:"Guerrier de l'aube",   desc:"3 séances avant 7h cette semaine",  xp:400, type:"early",      target:3},
+  {id:"wc_sess3",  icon:"🏋️", title:"Machine de guerre",    desc:"Complète 3 séances cette semaine",   type:"sessions",    target:3, xp:150},
+  {id:"wc_sess5",  icon:"🔥", title:"Semaine de feu",        desc:"Complète 5 séances cette semaine",   type:"sessions",    target:5, xp:300},
+  {id:"wc_early",  icon:"🌅", title:"Lève-tôt",              desc:"1 séance avant 7h cette semaine",    type:"early",       target:1, xp:100},
+  {id:"wc_night",  icon:"🌙", title:"Noctambule",            desc:"1 séance après 22h cette semaine",   type:"night",       target:1, xp:100},
+  {id:"wc_pr",     icon:"💪", title:"Nouveau record",        desc:"Bats 1 PR cette semaine",            type:"prs",         target:1, xp:200},
+  {id:"wc_post2",  icon:"📸", title:"Créateur de contenu",   desc:"Publie 2 posts cette semaine",       type:"posts",       target:2, xp:100},
+  {id:"wc_streak", icon:"⚡", title:"Régularité",            desc:"4 jours de séances consécutifs",     type:"streak_week", target:4, xp:250},
 ];
+function getWeekKey(){ const d=new Date(); const jan1=new Date(d.getFullYear(),0,1); return `w${d.getFullYear()}_${Math.ceil(((d-jan1)/86400000+jan1.getDay()+1)/7)}`; }
+function getWeekStart(){ const d=new Date(); d.setHours(0,0,0,0); d.setDate(d.getDate()-(d.getDay()===0?6:d.getDay()-1)); return d.getTime(); }
+function getWeekChallenges(){ const k=getWeekKey(); const seed=k.split('').reduce((a,c)=>a+c.charCodeAt(0),0); const shuffled=[...ALL_CHALLENGES].sort((a,b)=>(seed*13+a.id.charCodeAt(0))%7-(seed*13+b.id.charCodeAt(0))%7); return shuffled.slice(0,5); }
 
-// Get this week's 5 challenges — deterministic based on ISO week number
-function getWeekChallenges() {
-  const now = new Date();
-  const startOfYear = new Date(now.getFullYear(), 0, 1);
-  const weekNum = Math.floor((now - startOfYear) / (7 * 24 * 3600 * 1000));
-  // Seed selection: pick 5 different challenges based on week
-  const selected = [];
-  const pool = [...ALL_CHALLENGES];
-  let seed = weekNum * 31337;
-  for (let i = 0; i < 5; i++) {
-    seed = (seed * 1664525 + 1013904223) & 0x7fffffff;
-    const idx = seed % pool.length;
-    selected.push(pool[idx]);
-    pool.splice(idx, 1);
-  }
-  return selected;
-}
-
-// Get start of current week (Monday)
-function getWeekStart() {
-  const now = new Date();
-  const day = now.getDay();
-  const diff = (day === 0 ? -6 : 1) - day;
-  const mon = new Date(now);
-  mon.setDate(now.getDate() + diff);
-  mon.setHours(0,0,0,0);
-  return mon.getTime();
-}
-
-function getWeekKey() {
-  const d = new Date();
-  const jan1 = new Date(d.getFullYear(), 0, 1);
-  return `week_${d.getFullYear()}_${Math.floor((d - jan1)/(7*24*3600*1000))}`;
-}
-
-
+// ══════════════════════ RANKED ══
 function RankedTab({appState,updateState,rank,nextRank,rankPct,stats,giveXP}){
   const {country="France"}=appState;
   const [showCountry,setShowCountry]=useState(false);
   const [showRankPath,setShowRankPath]=useState(false);
+  const [lbExpanded,setLbExpanded]=useState(false);
 
   // Weekly challenges
-  const weekChallenges = getWeekChallenges();
-  const weekKey = getWeekKey();
-  const weekStart = getWeekStart();
-  // Load completed challenges from local storage
-  const [weekData,setWeekData]=useState(()=>{
-    try{ return JSON.parse(localStorage.getItem('gymbro_weekly')||'{}'); }catch{return {};}
-  });
-  const saveWeekData=(d)=>{
-    const next={...weekData,...d};
-    setWeekData(next);
-    try{localStorage.setItem('gymbro_weekly',JSON.stringify(next));}catch{}
-  };
-  const completedIds = weekData[weekKey+'_done'] || [];
+  const weekChallenges=getWeekChallenges();
+  const weekKey=getWeekKey();
+  const weekStart=getWeekStart();
+  const [weekData,setWeekData]=useState(()=>{ try{return JSON.parse(localStorage.getItem('gymbro_weekly')||'{}');}catch{return {};} });
+  const saveWeekData=(d)=>{ const next={...weekData,...d}; setWeekData(next); try{localStorage.setItem('gymbro_weekly',JSON.stringify(next));}catch{} };
+  const completedIds=weekData[weekKey+'_done']||[];
   const markDone=(id,xpAmount)=>{
     if(completedIds.includes(id))return;
-    const newDone=[...completedIds,id];
-    saveWeekData({[weekKey+'_done']:newDone});
-    // Give XP via parent callback
-    if(updateState){
-      updateState(s=>({stats:{...s.stats,points:(s.stats.points||0)+xpAmount}}));
-    }
+    saveWeekData({[weekKey+'_done']:[...completedIds,id]});
+    if(giveXP) giveXP(xpAmount,"Défi hebdo accompli ! 🎯","⚡");
+    else updateState(s=>({stats:{...s.stats,points:(s.stats.points||0)+xpAmount}}));
   };
 
-  // Compute weekly progress from stats + session history
   const weekSessions=(appState.sessionHistory||[]).filter(h=>h.date>=weekStart).length;
   const weekEarly=(appState.sessionHistory||[]).filter(h=>h.date>=weekStart&&new Date(h.date).getHours()<7).length;
   const weekNight=(appState.sessionHistory||[]).filter(h=>h.date>=weekStart&&new Date(h.date).getHours()>=22).length;
   const weekPosts=(appState.posts||[]).filter(p=>p.userId==="me"&&p.ts>=weekStart).length;
-  const weekPRs=0; // PRs are tracked in stats but not per-week — approximate
-
+  const weekPRs=(appState.sessionHistory||[]).filter(h=>h.date>=weekStart&&(h.prCount||0)>0).reduce((sum,h)=>sum+(h.prCount||0),0);
   function getChallengeProgress(ch){
     switch(ch.type){
-      case 'sessions':   return weekSessions;
-      case 'early':      return weekEarly;
-      case 'night':      return weekNight;
-      case 'posts':      return weekPosts;
-      case 'prs':        return weekPRs;
-      case 'streak_week':return Math.min(weekSessions,ch.target);
+      case 'sessions':    return weekSessions;
+      case 'early':       return weekEarly;
+      case 'night':       return weekNight;
+      case 'posts':       return weekPosts;
+      case 'prs':         return weekPRs;
+      case 'streak_week': return Math.min(weekSessions,ch.target);
       default: return 0;
     }
   }
 
+  // Leaderboard
   const [allUsers,setAllUsers]=useState([]);
-  const {onOpenProfile}=appState._callbacks||{};
   useEffect(()=>{
-    const loadUsers=async()=>{
+    const load=async()=>{
       try{
         const {supabase:sb}=await import('./supabase.js');
         const {data}=await sb.from('profiles').select('id,pseudo,points,sexe,avatar_url,country').order('points',{ascending:false}).limit(100);
-        if(data) setAllUsers(data);
+        if(data)setAllUsers(data);
       }catch(e){console.error('loadUsers:',e);}
     };
-    loadUsers();
-    const t=setInterval(loadUsers,30000);
-    return()=>clearInterval(t);
+    load(); const t=setInterval(load,30000); return()=>clearInterval(t);
   },[]);
+
   const myCountry=country||"France";
   const lb=[
     {u:appState.user.pseudo||"toi",pts:stats.points,r:rank,avatarUrl:appState.user.avatar||"",av:appState.user.sexe==="femme"?"👩":"👨",me:true,id:"me"},
-    ...allUsers
-      .filter(u=>u.pseudo!==appState.user.pseudo)
-      .filter(u=>{
-        if(myCountry==="Monde")return true;
-        if(!u.country||u.country==="France"||u.country===myCountry)return myCountry==="France"||u.country===myCountry;
-        return u.country===myCountry;
-      })
-      .map(u=>{
-        const r2=getRank(u.points||0);
-        return {u:u.pseudo||"?",pts:u.points||0,r:r2,avatarUrl:u.avatar_url||"",av:u.sexe==="femme"?"👩":"👨",me:false,id:u.id};
-      })
+    ...allUsers.filter(u=>u.pseudo!==appState.user.pseudo).filter(u=>{
+      if(myCountry==="Monde")return true;
+      return !u.country||u.country===myCountry;
+    }).map(u=>{const r2=getRank(u.points||0);return{u:u.pseudo||"?",pts:u.points||0,r:r2,avatarUrl:u.avatar_url||"",av:u.sexe==="femme"?"👩":"👨",me:false,id:u.id};})
   ].sort((a,b)=>b.pts-a.pts);
 
+  const topLb   = lb.slice(0,5);
+  const restLb  = lb.slice(5);
+  const myPos   = lb.findIndex(e=>e.me);
+
   return(
-    <div style={{padding:"14px 14px"}}>
-      {/* Rank card — clickable to show rank path */}
-      <div onClick={()=>setShowRankPath(true)} style={{background:`linear-gradient(135deg,${rank.color}18 0%,#0D0D1400 60%)`,border:`1px solid ${rank.color}44`,borderRadius:16,padding:16,marginBottom:16,position:"relative",overflow:"hidden",cursor:"pointer"}} className="glow">
-        <div style={{display:"flex",alignItems:"center",gap:14,marginBottom:10}}>
-          <RankBadge tier={rank.tier} size={52} showLabel label={rank.name}/>
-          <div>
-            <div style={{fontSize:22,fontWeight:900,color:"#F0F0F0"}}>@{appState.user.pseudo}</div>
-            <div style={{color:rank.color,fontWeight:800,fontSize:14,marginTop:2}}>{stats.points.toLocaleString()} XP</div>
+    <div style={{paddingBottom:8}}>
+      {/* ── RANK CARD ── */}
+      <div style={{padding:"14px 14px 0"}}>
+        <div onClick={()=>setShowRankPath(true)} style={{background:`linear-gradient(135deg,${rank.color}18 0%,#0D0D1400 60%)`,border:`1px solid ${rank.color}44`,borderRadius:16,padding:16,marginBottom:14,cursor:"pointer"}} className="glow">
+          <div style={{display:"flex",alignItems:"center",gap:14,marginBottom:10}}>
+            <RankBadge tier={rank.tier} size={52} showLabel label={rank.name}/>
+            <div>
+              <div style={{fontSize:22,fontWeight:900,color:"#F0F0F0"}}>@{appState.user.pseudo}</div>
+              <div style={{color:rank.color,fontWeight:800,fontSize:14,marginTop:2}}>{stats.points.toLocaleString()} XP</div>
+            </div>
           </div>
+          {nextRank&&<div><div style={{display:"flex",justifyContent:"space-between",fontSize:10,marginBottom:4}}><span style={{color:"#444"}}>{rank.name}</span><span style={{color:nextRank.color,fontWeight:700}}>{nextRank.name} — {(nextRank.min-stats.points).toLocaleString()} XP</span></div><div style={{height:4,background:"#1A1A2444",borderRadius:3,overflow:"hidden"}}><div style={{height:"100%",width:`${rankPct}%`,background:`linear-gradient(90deg,${rank.color},${nextRank.color})`,borderRadius:3}}/></div></div>}
+          <div style={{color:"#444",fontSize:10,marginTop:6,fontFamily:"'Barlow',sans-serif"}}>Touche pour voir tous les rangs →</div>
         </div>
-        {nextRank&&<div style={{marginTop:8}}><div style={{display:"flex",justifyContent:"space-between",fontSize:10,marginBottom:4}}><span style={{color:"#444"}}>{rank.name}</span><span style={{color:nextRank.color,fontWeight:700}}>{nextRank.name} — {(nextRank.min-stats.points).toLocaleString()} XP</span></div><div style={{height:4,background:"#1A1A2444",borderRadius:3,overflow:"hidden"}}><div style={{height:"100%",width:`${rankPct}%`,background:`linear-gradient(90deg,${rank.color},${nextRank.color})`,borderRadius:3}}/></div></div>}
-        <div style={{color:"#444",fontSize:10,marginTop:6,fontFamily:"'Barlow',sans-serif"}}>Touche pour voir la progression</div>
       </div>
 
-      {/* ══ WEEKLY CHALLENGES ══ */}
-      <div style={{marginBottom:20}}>
+      {/* ── WEEKLY CHALLENGES ── */}
+      <div style={{padding:"0 14px 14px"}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
-          <div>
-            <div style={{fontSize:14,fontWeight:900}}>⚡ DÉFIS DE LA SEMAINE</div>
-            <div style={{fontSize:10,color:"#555",marginTop:2,fontFamily:"'Barlow',sans-serif"}}>Se renouvellent chaque lundi</div>
-          </div>
-          <div style={{background:"#1A1A24",borderRadius:8,padding:"4px 10px",fontSize:11,fontWeight:700,color:"#888"}}>{completedIds.length}/5</div>
+          <div style={{fontSize:14,fontWeight:900}}>⚡ DÉFIS DE LA SEMAINE</div>
+          <div style={{background:"#1A1A24",borderRadius:8,padding:"3px 9px",fontSize:11,fontWeight:700,color:"#888"}}>{completedIds.length}/5</div>
         </div>
         {weekChallenges.map(ch=>{
           const done=completedIds.includes(ch.id);
@@ -2484,31 +2439,18 @@ function RankedTab({appState,updateState,rank,nextRank,rankPct,stats,giveXP}){
           const pct=Math.min((progress/ch.target)*100,100);
           const canClaim=progress>=ch.target&&!done;
           return(
-            <div key={ch.id} style={{background:done?"#0D1F0D":canClaim?"#1A1A0A":"#0D0D14",border:`1px solid ${done?"#22C55E44":canClaim?"#FBBF2444":"#1A1A24"}`,borderRadius:12,padding:"12px 14px",marginBottom:8,transition:"all .2s"}}>
+            <div key={ch.id} style={{background:done?"#0D1A0D":canClaim?"#1A1A0A":"#0D0D14",border:`1px solid ${done?"#22C55E44":canClaim?"#FBBF2444":"#1A1A24"}`,borderRadius:12,padding:"12px 14px",marginBottom:7,transition:"all .2s"}}>
               <div style={{display:"flex",alignItems:"center",gap:10}}>
-                <div style={{width:38,height:38,borderRadius:10,background:done?"#22C55E22":canClaim?"#FBBF2422":"#1A1A24",display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,flexShrink:0}}>
-                  {done?"✅":ch.icon}
-                </div>
+                <div style={{width:36,height:36,borderRadius:9,background:done?"#22C55E22":canClaim?"#FBBF2422":"#1A1A24",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,flexShrink:0}}>{done?"✅":ch.icon}</div>
                 <div style={{flex:1,minWidth:0}}>
                   <div style={{fontWeight:800,fontSize:13,color:done?"#22C55E":canClaim?"#FBBF24":"#F0F0F0"}}>{ch.title}</div>
                   <div style={{color:"#555",fontSize:11,fontFamily:"'Barlow',sans-serif",marginTop:1}}>{ch.desc}</div>
-                  {!done&&(
-                    <div style={{marginTop:6}}>
-                      <div style={{height:3,background:"#1A1A24",borderRadius:2,overflow:"hidden"}}>
-                        <div style={{height:"100%",width:pct+"%",background:canClaim?"#FBBF24":"#FF3D3D",borderRadius:2,transition:"width .5s"}}/>
-                      </div>
-                      <div style={{fontSize:9,color:"#444",marginTop:2}}>{progress}/{ch.target}</div>
-                    </div>
-                  )}
+                  {!done&&<div style={{marginTop:5}}><div style={{height:3,background:"#1A1A24",borderRadius:2,overflow:"hidden"}}><div style={{height:"100%",width:pct+"%",background:canClaim?"#FBBF24":"#FF3D3D",borderRadius:2,transition:"width .5s"}}/></div><div style={{fontSize:9,color:"#444",marginTop:2}}>{progress}/{ch.target}</div></div>}
                 </div>
                 <div style={{textAlign:"right",flexShrink:0}}>
-                  <div style={{fontSize:11,fontWeight:800,color:done?"#22C55E":canClaim?"#FBBF24":"#555"}}>+{ch.xp} XP</div>
-                  {canClaim&&(
-                    <button onClick={()=>markDone(ch.id,ch.xp)} style={{marginTop:5,background:"linear-gradient(135deg,#FBBF24,#F59E0B)",border:"none",color:"#000",borderRadius:7,padding:"5px 10px",fontSize:10,fontWeight:900,cursor:"pointer",fontFamily:"inherit"}}>
-                      RÉCLAMER
-                    </button>
-                  )}
-                  {done&&<div style={{fontSize:10,color:"#22C55E",fontWeight:700,marginTop:2}}>Obtenu ✓</div>}
+                  <div style={{fontSize:11,fontWeight:800,color:done?"#22C55E":canClaim?"#FBBF24":"#444"}}>+{ch.xp}</div>
+                  {canClaim&&<button onClick={()=>markDone(ch.id,ch.xp)} style={{marginTop:4,background:"linear-gradient(135deg,#FBBF24,#F59E0B)",border:"none",color:"#000",borderRadius:7,padding:"5px 9px",fontSize:10,fontWeight:900,cursor:"pointer",fontFamily:"inherit",display:"block"}}>RÉCLAMER</button>}
+                  {done&&<div style={{fontSize:10,color:"#22C55E",fontWeight:700,marginTop:2}}>✓</div>}
                 </div>
               </div>
             </div>
@@ -2516,52 +2458,64 @@ function RankedTab({appState,updateState,rank,nextRank,rankPct,stats,giveXP}){
         })}
       </div>
 
-      <div style={{marginBottom:16}}>
-        <div style={{fontSize:14,fontWeight:800,marginBottom:9}}>SOURCES D'XP</div>
-        {[{icon:"🏋️",l:"Séance complétée",xp:"+50"},{icon:"💪",l:"Nouveau PR (grands exos)",xp:"+150"},{icon:"🔥",l:"Streak 7 jours",xp:"+300"},{icon:"🌅",l:"Séance avant 7h",xp:"+75"},{icon:"🔥",l:"Streak 30 jours",xp:"+1000"}].map((it,i)=>(
-          <div key={i} style={{display:"flex",alignItems:"center",gap:9,padding:"9px 0",borderBottom:"1px solid #1A1A24"}}>
-            <div style={{width:34,height:34,borderRadius:8,background:"#1A1A24",display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,flexShrink:0}}>{it.icon}</div>
-            <div style={{flex:1,fontSize:13,fontWeight:600}}>{it.l}</div>
-            <div style={{color:"#FF3D3D",fontWeight:800,fontSize:13}}>{it.xp} XP</div>
-          </div>
-        ))}
-      </div>
-
-      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:9}}>
-        <div style={{fontSize:14,fontWeight:800}}>🏆 CLASSEMENT</div>
-        <button onClick={()=>setShowCountry(true)} style={{background:"#1A1A24",border:"1px solid #2A2A3A",color:"#CCC",padding:"4px 9px",borderRadius:7,fontSize:10,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>🌍 {country}</button>
-      </div>
-      {lb.map((e,i)=>(
-        <div key={i} onClick={!e.me&&appState._openProfile?()=>appState._openProfile({userId:e.id,pseudo:e.u,avatarVal:e.avatarUrl||"",avatarFallback:e.av,rankName:e.r.name,rankColor:e.r.color,rankIcon:e.r.icon,rankTier:e.r.tier,points:e.pts}):undefined}
-          style={{display:"flex",alignItems:"center",gap:9,padding:"9px 11px",background:e.me?"#FF3D3D11":"#0D0D14",borderRadius:9,marginBottom:5,border:e.me?"1px solid #FF3D3D44":"1px solid transparent",cursor:!e.me?"pointer":"default"}}>
-          <div style={{width:26,fontWeight:900,fontSize:13,textAlign:"center",color:i===0?"#FFD700":i===1?"#94A3B8":i===2?"#CD7F32":"#555"}}>#{i+1}</div>
-          <div style={{width:32,height:32,borderRadius:"50%",background:"#1A1A24",border:`2px solid ${e.r.color}44`,overflow:"hidden",display:"flex",alignItems:"center",justifyContent:"center",fontSize:15,flexShrink:0}}>
-            {e.avatarUrl&&(e.avatarUrl.startsWith("http")||e.avatarUrl.startsWith("data:"))
-              ?<img src={e.avatarUrl} style={{width:"100%",height:"100%",objectFit:"cover"}} alt=""/>
-              :<span>{e.av}</span>}
-          </div>
-          <div style={{flex:1,minWidth:0}}>
-            <div style={{fontWeight:700,fontSize:13,color:"#F0F0F0"}}>@{e.u}{e.me&&<span style={{color:"#FF3D3D",fontSize:9,marginLeft:4}}>(toi)</span>}</div>
-            <div style={{display:"flex",alignItems:"center",gap:4,marginTop:1}}>
-              <RankBadge tier={e.r.tier} size={14}/>
-              <span style={{fontSize:10,color:e.r.color,fontWeight:700}}>{e.r.name}</span>
-            </div>
-          </div>
-          <div style={{fontWeight:800,color:e.r.color,fontSize:13}}>{e.pts.toLocaleString()}</div>
+      {/* ── CLASSEMENT — nouveau design ── */}
+      <div style={{padding:"0 14px"}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+          <div style={{fontSize:14,fontWeight:900}}>🏆 CLASSEMENT</div>
+          <button onClick={()=>setShowCountry(true)} style={{background:"#1A1A24",border:"1px solid #2A2A3A",color:"#CCC",padding:"4px 9px",borderRadius:7,fontSize:10,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>
+            🌍 {country}
+          </button>
         </div>
-      ))}
 
-      {/* Country picker */}
+        {/* Top 3 podium */}
+        {topLb.length>=3&&(
+          <div style={{display:"flex",alignItems:"flex-end",justifyContent:"center",gap:6,marginBottom:16,padding:"0 4px"}}>
+            {/* 2nd */}
+            <PodiumCard entry={topLb[1]} pos={2} appState={appState}/>
+            {/* 1st */}
+            <PodiumCard entry={topLb[0]} pos={1} appState={appState}/>
+            {/* 3rd */}
+            <PodiumCard entry={topLb[2]} pos={3} appState={appState}/>
+          </div>
+        )}
+
+        {/* Positions 4-5 */}
+        {topLb.slice(3).map((e,i)=>(
+          <LeaderboardRow key={e.id} entry={e} pos={i+4} appState={appState}/>
+        ))}
+
+        {/* My position if not in top 5 */}
+        {myPos>4&&(
+          <>
+            <div style={{textAlign:"center",color:"#333",fontSize:11,padding:"6px 0"}}>• • •</div>
+            <LeaderboardRow entry={lb[myPos]} pos={myPos+1} appState={appState} highlight/>
+          </>
+        )}
+
+        {/* Voir plus */}
+        {restLb.length>0&&(
+          <>
+            {lbExpanded&&restLb.map((e,i)=>(
+              <LeaderboardRow key={e.id} entry={e} pos={i+6} appState={appState}/>
+            ))}
+            <button onClick={()=>setLbExpanded(!lbExpanded)} style={{width:"100%",padding:"10px",background:"#0D0D14",border:"1px solid #1A1A24",color:"#888",borderRadius:10,fontFamily:"'Barlow Condensed',sans-serif",fontSize:12,fontWeight:800,cursor:"pointer",marginTop:6,letterSpacing:".04em"}}>
+              {lbExpanded?"RÉDUIRE ▲":`VOIR PLUS (${restLb.length}) ▼`}
+            </button>
+          </>
+        )}
+      </div>
+
+      {/* ── COUNTRY PICKER ── */}
       {showCountry&&(
         <div className="modal-bg" onTouchMove={e=>e.stopPropagation()} onWheel={e=>e.stopPropagation()} onClick={()=>setShowCountry(false)}>
           <div className="modal-sheet" onClick={e=>e.stopPropagation()}>
             <div className="modal-handle"/>
-            <div style={{padding:"0 14px"}}>
+            <div style={{padding:"0 14px 20px"}}>
               <div style={{fontSize:16,fontWeight:900,marginBottom:12}}>Choisir le classement</div>
-              {COUNTRIES.map(c=>(
-                <button key={c} onClick={()=>{updateState({country:c,stats:{...stats,changedCountry:true}});setShowCountry(false);}} style={{width:"100%",padding:"11px 13px",background:country===c?"#FF3D3D22":"#0D0D14",border:`1px solid ${country===c?"#FF3D3D44":"#1A1A24"}`,borderRadius:9,color:"#F0F0F0",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit",textAlign:"left",marginBottom:5,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-                  <span>{{"France":"🇫🇷","Monde":"🌍","Allemagne":"🇩🇪","Espagne":"🇪🇸","Italie":"🇮🇹","Royaume-Uni":"🇬🇧","États-Unis":"🇺🇸","Belgique":"🇧🇪","Suisse":"🇨🇭","Canada":"🇨🇦"}[c]||"🌍"} {c}</span>
-                  {country===c&&<span style={{color:"#FF3D3D"}}>✓</span>}
+              {COUNTRIES.map(co=>(
+                <button key={co} onClick={()=>{updateState({country:co,stats:{...stats,changedCountry:true}});setShowCountry(false);}} style={{width:"100%",padding:"11px 13px",background:country===co?"#FF3D3D22":"#0D0D14",border:`1px solid ${country===co?"#FF3D3D44":"#1A1A24"}`,borderRadius:9,color:"#F0F0F0",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit",textAlign:"left",marginBottom:5,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                  <span>{{"France":"🇫🇷","Monde":"🌍","Allemagne":"🇩🇪","Espagne":"🇪🇸","Italie":"🇮🇹","Royaume-Uni":"🇬🇧","États-Unis":"🇺🇸","Belgique":"🇧🇪","Suisse":"🇨🇭","Canada":"🇨🇦"}[co]||"🌍"} {co}</span>
+                  {country===co&&<span style={{color:"#FF3D3D"}}>✓</span>}
                 </button>
               ))}
             </div>
@@ -2569,34 +2523,60 @@ function RankedTab({appState,updateState,rank,nextRank,rankPct,stats,giveXP}){
         </div>
       )}
 
-      {/* Rank path overlay */}
+      {/* ── RANK PATH OVERLAY — nouvelle version style jeux vidéo ── */}
       {showRankPath&&(
         <div className="modal-bg" onTouchMove={e=>e.stopPropagation()} onWheel={e=>e.stopPropagation()} onClick={()=>setShowRankPath(false)}>
-          <div className="modal-sheet" onClick={e=>e.stopPropagation()} style={{maxHeight:"85vh"}}>
-            <div className="modal-handle"/>
-            <div style={{padding:"0 14px 10px"}}>
-              <div style={{fontSize:17,fontWeight:900,marginBottom:14}}>Progression des rangs</div>
-              {RANKS.map((r,i)=>{
-                const isCurrent=r.name===rank.name;
-                const isPassed=stats.points>r.min;
-                const nextR=RANKS[i+1];
-                const progInTier=nextR?Math.min(((stats.points-r.min)/(nextR.min-r.min))*100,100):100;
+          <div className="modal-sheet" onClick={e=>e.stopPropagation()} style={{maxHeight:"90vh",display:"flex",flexDirection:"column"}}>
+            <div className="modal-handle" style={{flexShrink:0}}/>
+            <div className="sa" style={{flex:1,padding:"0 16px 24px",minHeight:0}}>
+              <div style={{fontSize:20,fontWeight:900,marginBottom:4}}>Progression des rangs</div>
+              <div style={{fontSize:12,color:"#555",fontFamily:"'Barlow',sans-serif",marginBottom:20}}>Ton chemin vers l'Élite</div>
+
+              {/* Rank tiers grouped */}
+              {[
+                {tier:"bronze",  label:"BRONZE",   color:"#CD7F32", ranks:RANKS.filter(r=>r.tier==="bronze")},
+                {tier:"silver",  label:"ARGENT",   color:"#94A3B8", ranks:RANKS.filter(r=>r.tier==="silver")},
+                {tier:"gold",    label:"OR",        color:"#FBBF24", ranks:RANKS.filter(r=>r.tier==="gold")},
+                {tier:"platinum",label:"PLATINE",  color:"#67E8F9", ranks:RANKS.filter(r=>r.tier==="platinum")},
+                {tier:"diamond", label:"DIAMANT",  color:"#A78BFA", ranks:RANKS.filter(r=>r.tier==="diamond")},
+                {tier:"elite",   label:"ÉLITE",    color:"#FF4D4D", ranks:RANKS.filter(r=>r.tier==="elite")},
+              ].map(({tier,label,color,ranks})=>{
+                const isCurTier=rank.tier===tier;
+                const isPastTier=ranks.every(r=>stats.points>r.min);
                 return(
-                  <div key={r.name} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 0",borderBottom:i<RANKS.length-1?"1px solid #1A1A2A":"none"}}>
-                    <div style={{width:34,height:34,borderRadius:"50%",background:isCurrent?r.color+"33":isPassed?r.color+"18":"#0D0D14",border:`2px solid ${isCurrent?r.color:isPassed?r.color+"88":"#1A1A24"}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:isCurrent?18:14,flexShrink:0,boxShadow:isCurrent?`0 0 8px ${r.color}66`:"none"}}>{isPassed||isCurrent?r.icon:"·"}</div>
-                    <div style={{flex:1,minWidth:0}}>
-                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:isCurrent?4:0}}>
-                        <span style={{fontWeight:isCurrent?900:600,fontSize:12,color:isCurrent?r.color:isPassed?"#888":"#444"}}>{r.name}</span>
-                        <span style={{fontSize:10,color:"#555"}}>{r.min.toLocaleString()} XP</span>
+                  <div key={tier} style={{marginBottom:14,background:isCurTier?color+"0A":"#0D0D14",border:`1px solid ${isCurTier?color+"44":"#1A1A24"}`,borderRadius:14,overflow:"hidden"}}>
+                    {/* Tier header */}
+                    <div style={{display:"flex",alignItems:"center",gap:10,padding:"10px 12px",background:isCurTier?color+"18":"transparent",borderBottom:`1px solid ${isCurTier?color+"33":"#1A1A24"}`}}>
+                      <RankBadge tier={tier} size={28}/>
+                      <div style={{flex:1}}>
+                        <div style={{fontWeight:900,fontSize:14,color:isCurTier?color:"#888",letterSpacing:".06em"}}>{label}</div>
+                        <div style={{fontSize:10,color:"#444",fontFamily:"'Barlow',sans-serif"}}>{ranks[0].min.toLocaleString()} — {(ranks[ranks.length-1].min).toLocaleString()}+ XP</div>
                       </div>
-                      {isCurrent&&nextR&&(
-                        <div style={{height:3,background:"#1A1A24",borderRadius:2,overflow:"hidden"}}>
-                          <div style={{height:"100%",width:`${progInTier}%`,background:r.color,borderRadius:2}}/>
-                        </div>
-                      )}
+                      {isPastTier&&!isCurTier&&<div style={{color:"#22C55E",fontSize:18}}>✓</div>}
+                      {isCurTier&&<div style={{background:color+"22",color,fontSize:9,fontWeight:900,padding:"3px 7px",borderRadius:5,letterSpacing:".06em"}}>TU ES ICI</div>}
                     </div>
-                    {isCurrent&&<div style={{background:r.color+"22",color:r.color,padding:"2px 7px",borderRadius:4,fontSize:9,fontWeight:800,flexShrink:0}}>TU ES ICI</div>}
-                    {isPassed&&!isCurrent&&<div style={{color:"#22C55E",fontSize:12}}>✓</div>}
+                    {/* Sub-ranks */}
+                    <div style={{padding:"8px 12px 10px",display:"flex",gap:6}}>
+                      {ranks.map((r,i)=>{
+                        const isCur=r.name===rank.name;
+                        const isPassed=stats.points>=r.min&&!isCur;
+                        const nextR=RANKS[RANKS.indexOf(r)+1];
+                        const prog=isCur&&nextR?Math.min(((stats.points-r.min)/(nextR.min-r.min))*100,100):isPassed?100:0;
+                        return(
+                          <div key={r.name} style={{flex:1,textAlign:"center"}}>
+                            {/* Progress ring simulation */}
+                            <div style={{width:"100%",aspectRatio:"1",borderRadius:"50%",background:isCur?color+"22":isPassed?color+"15":"#1A1A24",border:`${isCur?3:2}px solid ${isCur?color:isPassed?color+"66":"#2A2A3A"}`,display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 5px",boxShadow:isCur?`0 0 12px ${color}66`:"none",transition:"all .3s",position:"relative",overflow:"hidden"}}>
+                              {isCur&&prog>0&&<div style={{position:"absolute",bottom:0,left:0,right:0,height:prog+"%",background:color+"22",transition:"height .5s"}}/>}
+                              <span style={{fontSize:isCur?13:11,fontWeight:900,color:isCur?color:isPassed?color+"AA":"#333",position:"relative",zIndex:1}}>
+                                {isPassed?"✓":isCur?"★":r.name.includes("I")&&!r.name.includes("II")&&!r.name.includes("III")?"I":r.name.includes("III")?"III":"II"}
+                              </span>
+                            </div>
+                            <div style={{fontSize:9,color:isCur?color:isPassed?"#888":"#333",fontWeight:700,fontFamily:"'Barlow Condensed',sans-serif"}}>{r.name.split(" ")[1]}</div>
+                            <div style={{fontSize:8,color:"#333",fontFamily:"'Barlow',sans-serif"}}>{(r.min/1000).toFixed(0)}k</div>
+                          </div>
+                        );
+                      })}
+                    </div>
                   </div>
                 );
               })}
@@ -2607,6 +2587,64 @@ function RankedTab({appState,updateState,rank,nextRank,rankPct,stats,giveXP}){
     </div>
   );
 }
+
+// ── Podium Card (top 3) ──
+function PodiumCard({entry, pos, appState}){
+  const heights={1:90,2:70,3:60};
+  const h=heights[pos]||60;
+  const colors={1:"#FFD700",2:"#94A3B8",3:"#CD7F32"};
+  const col=colors[pos];
+  const isMe=entry.me;
+  return(
+    <div style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",maxWidth:120}}>
+      {/* Avatar */}
+      <div style={{position:"relative",marginBottom:6}}>
+        <div style={{width:pos===1?52:44,height:pos===1?52:44,borderRadius:"50%",border:`3px solid ${col}`,overflow:"hidden",background:"#1A1A24",display:"flex",alignItems:"center",justifyContent:"center",fontSize:pos===1?22:18,boxShadow:`0 0 ${pos===1?16:10}px ${col}55`}}>
+          {entry.avatarUrl&&(entry.avatarUrl.startsWith("http")||entry.avatarUrl.startsWith("data:"))
+            ?<img src={entry.avatarUrl} style={{width:"100%",height:"100%",objectFit:"cover"}} alt=""/>
+            :<span>{entry.av}</span>}
+        </div>
+        <div style={{position:"absolute",top:-6,left:"50%",transform:"translateX(-50%)",background:col,color:"#000",fontWeight:900,fontSize:9,borderRadius:"50%",width:16,height:16,display:"flex",alignItems:"center",justifyContent:"center"}}>
+          {pos}
+        </div>
+      </div>
+      {/* Name */}
+      <div style={{fontSize:10,fontWeight:800,color:isMe?"#FF3D3D":"#F0F0F0",marginBottom:3,maxWidth:"100%",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",textAlign:"center"}}>@{entry.u}</div>
+      <div style={{display:"flex",alignItems:"center",gap:3,marginBottom:6}}>
+        <RankBadge tier={entry.r.tier} size={12}/>
+        <span style={{fontSize:9,color:entry.r.color,fontWeight:700}}>{entry.r.name}</span>
+      </div>
+      {/* Podium block */}
+      <div style={{width:"100%",height:h,background:`linear-gradient(180deg,${col}33,${col}18)`,border:`1px solid ${col}66`,borderRadius:"8px 8px 0 0",display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:2}}>
+        <div style={{fontSize:pos===1?15:12,fontWeight:900,color:col}}>{entry.pts.toLocaleString()}</div>
+        <div style={{fontSize:8,color:col+"AA",fontWeight:700}}>XP</div>
+      </div>
+    </div>
+  );
+}
+
+// ── Leaderboard Row (pos 4+) ──
+function LeaderboardRow({entry, pos, appState, highlight}){
+  return(
+    <div style={{display:"flex",alignItems:"center",gap:9,padding:"9px 12px",background:highlight||entry.me?"#FF3D3D0A":"#0D0D14",borderRadius:10,marginBottom:5,border:highlight||entry.me?"1px solid #FF3D3D33":"1px solid transparent"}}>
+      <div style={{width:24,fontWeight:900,fontSize:12,textAlign:"center",color:"#444",flexShrink:0}}>#{pos}</div>
+      <div style={{width:32,height:32,borderRadius:"50%",background:"#1A1A24",border:`2px solid ${entry.r.color}44`,overflow:"hidden",display:"flex",alignItems:"center",justifyContent:"center",fontSize:15,flexShrink:0}}>
+        {entry.avatarUrl&&(entry.avatarUrl.startsWith("http")||entry.avatarUrl.startsWith("data:"))
+          ?<img src={entry.avatarUrl} style={{width:"100%",height:"100%",objectFit:"cover"}} alt=""/>
+          :<span>{entry.av}</span>}
+      </div>
+      <div style={{flex:1,minWidth:0}}>
+        <div style={{fontWeight:700,fontSize:13,color:"#F0F0F0",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>@{entry.u}{entry.me&&<span style={{color:"#FF3D3D",fontSize:9,marginLeft:4}}>(toi)</span>}</div>
+        <div style={{display:"flex",alignItems:"center",gap:4,marginTop:1}}>
+          <RankBadge tier={entry.r.tier} size={13}/>
+          <span style={{fontSize:10,color:entry.r.color,fontWeight:700}}>{entry.r.name}</span>
+        </div>
+      </div>
+      <div style={{fontWeight:800,color:entry.r.color,fontSize:13}}>{entry.pts.toLocaleString()}</div>
+    </div>
+  );
+}
+
 
 // ══════════════════════ POST VIEW MODAL ══
 function PostViewModal({post,onClose,toggleLike,addComment,myPseudo,myAvatarVal,av,onDelete,zIndex}){
@@ -3003,8 +3041,12 @@ function ProfileTab({appState,updateState,rank,imc,av,onEdit,onLogout,posts,chec
       {showSoloModal&&(
         <SoloChallengeModal
           current={soloChallenge}
+          appState={appState}
           onClose={()=>setShowSoloModal(false)}
-          onCreate={async(data)=>{await overrides?.createSoloChallenge?.(data);setShowSoloModal(false);}}
+          onCreate={async(data)=>{
+            try{ await overrides?.createSoloChallenge?.(data); setShowSoloModal(false); }
+            catch(e){ alert(e.message||"Erreur"); }
+          }}
           onDelete={async()=>{await overrides?.deleteSoloChallenge?.(soloChallenge?.id);setShowSoloModal(false);}}
         />
       )}
@@ -3023,7 +3065,7 @@ const SOLO_PRESETS = [
 ];
 const SOLO_DURATIONS = [{d:7,l:"7 jours",xp:300},{d:14,l:"14 jours",xp:600},{d:30,l:"30 jours",xp:1000},{d:60,l:"60 jours",xp:1500}];
 
-function SoloChallengeModal({current, onClose, onCreate, onDelete}){
+function SoloChallengeModal({current, onClose, onCreate, onDelete, appState}){
   const [preset,setPreset]=useState(null);
   const [duration,setDuration]=useState(SOLO_DURATIONS[2]);
   const [target,setTarget]=useState("");
@@ -3095,7 +3137,21 @@ function SoloChallengeModal({current, onClose, onCreate, onDelete}){
               {/* Target */}
               <div style={{marginTop:14,marginBottom:10}}>
                 <div style={{fontSize:11,fontWeight:800,color:"#555",letterSpacing:".08em",textTransform:"uppercase",marginBottom:6}}>Objectif ({preset.unit})</div>
-                <input className="inp" type="number" placeholder={preset.type==="pr"?"ex: 100":preset.type==="sessions"?"ex: 10":"ex: 5000"} value={target} onChange={e=>setTarget(e.target.value)} style={{fontFamily:"'Barlow Condensed',sans-serif",fontWeight:900,fontSize:18,textAlign:"center"}}/>
+                <input className="inp" type="number"
+                  placeholder={preset.type==="pr"?"ex: 100":preset.type==="sessions"?"ex: 10":"ex: 5000"}
+                  value={target} onChange={e=>setTarget(e.target.value)}
+                  style={{fontFamily:"'Barlow Condensed',sans-serif",fontWeight:900,fontSize:18,textAlign:"center"}}/>
+                {preset.type==="pr"&&target&&(()=>{
+                  // Get current PR for this exercise
+                  const exHistory=(appState?.exercises||{})[preset.exercise]||[];
+                  const currentPR=exHistory.flatMap(h=>h.sets.map(s=>s.weight||0)).reduce((a,b)=>Math.max(a,b),0);
+                  const minTarget=currentPR+5;
+                  const isValid=Number(target)>=minTarget;
+                  return <div style={{fontSize:11,marginTop:5,fontFamily:"'Barlow',sans-serif",color:isValid?"#22C55E":"#FF6060"}}>
+                    {currentPR>0?`Ton PR actuel : ${currentPR}kg — minimum ${minTarget}kg requis`:`Aucun PR enregistré — fixe un objectif réaliste`}
+                    {!isValid&&target&&<span style={{fontWeight:700}}> ⚠️</span>}
+                  </div>;
+                })()}
               </div>
 
               {/* Duration */}
@@ -3117,10 +3173,17 @@ function SoloChallengeModal({current, onClose, onCreate, onDelete}){
         </div>
 
         {!current&&<div style={{padding:"12px 16px",paddingBottom:"max(16px,env(safe-area-inset-bottom,16px))",borderTop:"1px solid #1A1A24",flexShrink:0,background:"#0F0F18"}}>
-          <button onClick={launch} disabled={!preset||!target||loading}
-            style={{width:"100%",padding:"14px",background:preset&&target?"linear-gradient(135deg,#FF3D3D,#CC2020)":"#1A1A24",border:"none",color:preset&&target?"#FFF":"#444",borderRadius:12,fontFamily:"'Barlow Condensed',sans-serif",fontSize:16,fontWeight:900,cursor:preset&&target?"pointer":"not-allowed",letterSpacing:".06em",transition:"all .2s"}}>
-            {loading?"Lancement...":preset&&target?`🎯 LANCER — ${duration.xp} XP À LA CLÉ`:"Choisis un défi et un objectif"}
-          </button>
+          {(()=>{
+            const exHistory=(preset?.type==="pr"&&(appState?.exercises||{})[preset?.exercise])||[];
+            const currentPR=Array.isArray(exHistory)?exHistory.flatMap(h=>h.sets.map(s=>s.weight||0)).reduce((a,b)=>Math.max(a,b),0):0;
+            const minTarget=currentPR>0?currentPR+5:1;
+            const prInvalid=preset?.type==="pr"&&target&&Number(target)<minTarget;
+            const canLaunch=preset&&target&&!loading&&!prInvalid;
+            return <button onClick={canLaunch?launch:undefined} disabled={!canLaunch}
+              style={{width:"100%",padding:"14px",background:canLaunch?"linear-gradient(135deg,#FF3D3D,#CC2020)":"#1A1A24",border:"none",color:canLaunch?"#FFF":"#444",borderRadius:12,fontFamily:"'Barlow Condensed',sans-serif",fontSize:16,fontWeight:900,cursor:canLaunch?"pointer":"not-allowed",letterSpacing:".06em",transition:"all .2s"}}>
+              {loading?"Lancement...":prInvalid?`⚠️ Min. ${minTarget}kg requis`:canLaunch?`🎯 LANCER — ${duration.xp} XP À LA CLÉ`:"Choisis un défi et un objectif"}
+            </button>;
+          })()}
         </div>}
         {current&&<div style={{padding:"12px 16px",paddingBottom:"max(16px,env(safe-area-inset-bottom,16px))",flexShrink:0}}>
           <button onClick={onClose} style={{width:"100%",padding:"12px",background:"#1A1A24",border:"none",color:"#888",borderRadius:12,fontFamily:"'Barlow Condensed',sans-serif",fontSize:14,fontWeight:700,cursor:"pointer"}}>Fermer</button>

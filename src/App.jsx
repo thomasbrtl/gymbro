@@ -557,7 +557,12 @@ export default function App() {
   async function createSoloChallenge({ type, exercise, title, target, durationDays }) {
     if (!supaSession) return
     if (soloChallenge) throw new Error('Un défi solo est déjà en cours')
-    const xpReward = durationDays <= 7 ? 300 : durationDays <= 14 ? 600 : durationDays <= 30 ? 1000 : 1500
+    // ── 1 défi perso max par semaine ──
+    const weekStart = new Date(); weekStart.setHours(0,0,0,0); weekStart.setDate(weekStart.getDate() - weekStart.getDay() + (weekStart.getDay()===0?-6:1))
+    const { count: weekCount } = await supabase.from('solo_challenges').select('*', { count: 'exact', head: true }).eq('user_id', supaSession.user.id).gte('created_at', weekStart.toISOString())
+    if (weekCount && weekCount >= 1) throw new Error('1 défi perso maximum par semaine')
+    // ── XP réduit ──
+    const xpReward = durationDays <= 7 ? 100 : durationDays <= 14 ? 200 : durationDays <= 30 ? 350 : 500
     const endDate = new Date(Date.now() + durationDays * 86400000).toISOString()
     const { error } = await supabase.from('solo_challenges').insert({
       user_id: supaSession.user.id, type, exercise: exercise || null,
@@ -698,6 +703,9 @@ export default function App() {
       await supabase.from('solo_challenges').update({ current: newCurrent, status: newStatus }).eq('id', sc.id)
       if (xpBonus > 0) {
         await supabase.from('profiles').update({ points: (profile?.points||0) + xpBonus }).eq('id', supaSession.user.id)
+        sendPushTo(supaSession.user.id, '🎯 Défi solo accompli !', `+${xpBonus} XP — ${sc.title}`, 'solo_success')
+        // In-app notif via supabase notifications table
+        supabase.from('notifications').insert({ user_id: supaSession.user.id, from_id: supaSession.user.id, type: 'solo_success' }).catch(()=>{})
       }
       loadSoloChallenge()
     }
@@ -717,7 +725,8 @@ export default function App() {
       }
     }
 
-    return { isNewDay: (profile?.last_session_date || '') !== today, isEarly, prCount }
+    const xpGain = supaSession && profile ? (((profile.last_session_date || '') !== today ? 50 : 0) + (isEarly && (profile.last_session_date || '') !== today ? 75 : 0) + prCount * 150) : 0
+    return { isNewDay: (profile?.last_session_date || '') !== today, isEarly, prCount, xpGain }
   }, [supaSession, profile, saveLocal, loadProfile])
 
   // ══════════════════════ BUILD STATE ══
