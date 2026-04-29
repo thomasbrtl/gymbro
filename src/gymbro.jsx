@@ -822,6 +822,17 @@ function AppMain({appState,updateState,onLogout,overrides={}}){
     return()=>window.removeEventListener("gymbro_sendmsg",handler);
   },[sendMessage]);
 
+  // Listen for tab switch events (e.g. from profile club click)
+  useEffect(()=>{
+    const handler=(e)=>{
+      const {tab:t,subTab}=e.detail||{};
+      if(t) setTab(t);
+      if(subTab) window._pendingSubTab=subTab; // picked up by MessagesTab
+    };
+    window.addEventListener("gymbro_switch_tab",handler);
+    return()=>window.removeEventListener("gymbro_switch_tab",handler);
+  },[]);
+
   return(
     <div style={{fontFamily:"'Barlow Condensed','Arial Narrow',sans-serif",background:"#0A0A0F",color:"#F0F0F0",width:"100%",maxWidth:430,margin:"0 auto",minHeight:"100vh",position:"relative",overflowX:"hidden",letterSpacing:".02em"}}>
       <Toast toasts={toasts}/>
@@ -913,6 +924,12 @@ function AppMain({appState,updateState,onLogout,overrides={}}){
       {viewProfile&&(
         <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,width:"100vw",height:"100vh",background:"#0A0A0F",zIndex:999,overflowY:"auto",WebkitOverflowScrolling:"touch"}}>
           <FullUserProfile post={viewProfile} posts={posts} following={following} toggleFollow={toggleFollow}
+              onOpenClub={(clubId,clubName,clubChain,clubCity)=>{
+                // Navigate to clubs tab with this club open
+                setViewProfile(null);
+                setTab("messages");
+                setTimeout(()=>window.dispatchEvent(new CustomEvent("gymbro_open_club",{detail:{clubId,chain:clubChain,city:clubCity,name:clubName}})),200);
+              }}
               onClose={()=>setViewProfile(null)}
               onMessage={(id,p,av,fb)=>{
                 // Create conversation if not exists
@@ -1167,7 +1184,7 @@ function FullUserProfile({post,posts,following,toggleFollow,onClose,onMessage,my
         if(profData.gym_club_id){
           sb.from('gym_clubs').select('id,chain,city').eq('id',profData.gym_club_id).maybeSingle()
             .then(({data:clubD})=>{
-              if(clubD) setFetchedProfile(fp=>fp?{...fp,gym_club_name:`${clubD.chain} ${clubD.city}`,gym_club_id:clubD.id}:fp);
+              if(clubD) setFetchedProfile(fp=>fp?{...fp,gym_club_name:`${clubD.chain} ${clubD.city}`,gym_club_id:clubD.id,gym_club_chain:clubD.chain,gym_club_city:clubD.city}:fp);
             });
         }
         const exMap={};
@@ -1233,7 +1250,8 @@ function FullUserProfile({post,posts,following,toggleFollow,onClose,onMessage,my
         <div style={{fontSize:18,fontWeight:900,marginBottom:4,color:"#F0F0F0"}}>@{post.pseudo}</div>
         <span className="rb" style={{background:rank.color+"22",color:rank.color,marginBottom:10,display:"inline-flex"}}>{rank.icon} {rank.name} · {displayStats.points.toLocaleString()} XP</span>
         {(fetchedProfile?.gym_club_name||post._gymClub)&&(
-          <div style={{display:"flex",alignItems:"center",gap:6,marginTop:4,marginBottom:6,cursor:"pointer"}} onClick={()=>onOpenClub&&onOpenClub(fetchedProfile?.gym_club_id||post._gymClubId)}>
+          <div style={{display:"flex",alignItems:"center",gap:6,marginTop:4,marginBottom:6,cursor:"pointer"}}
+            onClick={()=>onOpenClub&&onOpenClub(fetchedProfile?.gym_club_id||post._gymClubId, fetchedProfile?.gym_club_name||post._gymClub, fetchedProfile?.gym_club_chain, fetchedProfile?.gym_club_city)}>
             <span style={{fontSize:13}}>🏋️</span>
             <span style={{fontSize:12,color:"#67E8F9",fontWeight:700,textDecoration:"underline",fontFamily:"'Barlow',sans-serif"}}>{fetchedProfile?.gym_club_name||post._gymClub}</span>
           </div>
@@ -1346,6 +1364,14 @@ function MessagesTab({conversations,user,av,updateState,appState,overrides,onOpe
   const [selPreset,setSelPreset]=useState(null);
   const [directTarget,setDirectTarget]=useState(null);
   const endRef=useRef(null);
+
+  // Pick up pending subTab (e.g. "clubs") set by gymbro_switch_tab event
+  useEffect(()=>{
+    if(window._pendingSubTab){
+      setMsgSubTab(window._pendingSubTab);
+      window._pendingSubTab=null;
+    }
+  },[]);
 
   // Open conversation when navigated from profile
   useEffect(()=>{
@@ -2999,10 +3025,13 @@ function ProfileTab({appState,updateState,rank,imc,av,onEdit,onLogout,posts,chec
       <div style={{color:"#555",fontSize:11,fontFamily:"'Barlow',sans-serif",marginBottom:6,marginTop:4}}>{user.age} ans · {user.sexe} · {user.poids}kg · {user.taille}cm{imc?` · IMC ${imc}`:""}</div>
       {/* Club */}
       {appState?.gymClub
-        ?<div onClick={()=>setShowClubModal(true)} style={{display:"inline-flex",alignItems:"center",gap:6,background:"#001A1A",border:"1px solid #67E8F944",borderRadius:8,padding:"5px 10px",cursor:"pointer",marginBottom:10}}>
+        ?<div style={{display:"inline-flex",alignItems:"center",gap:6,background:"#001A1A",border:"1px solid #67E8F944",borderRadius:8,padding:"5px 10px",marginBottom:10}}>
            <span style={{fontSize:13}}>🏋️</span>
-           <span style={{fontSize:12,color:"#67E8F9",fontWeight:700}}>{appState.gymClub.chain} {appState.gymClub.city}</span>
-           <span style={{fontSize:10,color:"#444"}}>· changer</span>
+           <span onClick={()=>{
+             window.dispatchEvent(new CustomEvent("gymbro_switch_tab",{detail:{tab:"messages",subTab:"clubs"}}));
+             setTimeout(()=>window.dispatchEvent(new CustomEvent("gymbro_open_club",{detail:{clubId:appState.gymClubId,chain:appState.gymClub.chain,city:appState.gymClub.city,name:`${appState.gymClub.chain} ${appState.gymClub.city}`}})),300);
+           }} style={{fontSize:12,color:"#67E8F9",fontWeight:700,cursor:"pointer"}}>{appState.gymClub.chain} {appState.gymClub.city}</span>
+           <span onClick={()=>setShowClubModal(true)} style={{fontSize:10,color:"#444",cursor:"pointer",paddingLeft:4,borderLeft:"1px solid #1A2A2A"}}>changer</span>
          </div>
         :<div onClick={()=>setShowClubModal(true)} style={{display:"inline-flex",alignItems:"center",gap:6,background:"#001A1A",border:"1px dashed #67E8F933",borderRadius:8,padding:"5px 10px",cursor:"pointer",marginBottom:10}}>
            <span style={{fontSize:13}}>🏋️</span>
@@ -3418,6 +3447,17 @@ function ClubsTab({appState, overrides, onOpenProfile}){
   const myClub=appState?.gymClub;
 
   useEffect(()=>{
+    const handler=(e)=>{
+      const {clubId,chain,city,name}=e.detail||{};
+      if(clubId){
+        openClubPage({id:clubId,chain,city,name:name||`${chain} ${city}`,total_xp:0,member_count:0});
+      }
+    };
+    window.addEventListener("gymbro_open_club",handler);
+    return()=>window.removeEventListener("gymbro_open_club",handler);
+  },[]);
+
+  useEffect(()=>{
     const load=async()=>{
       setLoadingRank(true);
       try{
@@ -3468,13 +3508,16 @@ function ClubsTab({appState, overrides, onOpenProfile}){
               <div style={{fontSize:10,color:"#555",fontWeight:700}}>XP CUMULÉ</div>
             </div>
           </div>
-          {myClub?.id!==openClub.id&&(
-            <button onClick={()=>overrides?.joinClub(openClub.id)} style={{width:"100%",padding:"11px",background:"linear-gradient(135deg,#67E8F9,#0EA5E9)",border:"none",color:"#000",borderRadius:11,fontFamily:"'Barlow Condensed',sans-serif",fontSize:14,fontWeight:900,cursor:"pointer",marginBottom:14,letterSpacing:".04em"}}>
+          {appState?.gymClubId!==openClub.id&&(
+            <button onClick={async()=>{await overrides?.joinClub(openClub.id);}} style={{width:"100%",padding:"11px",background:"linear-gradient(135deg,#67E8F9,#0EA5E9)",border:"none",color:"#000",borderRadius:11,fontFamily:"'Barlow Condensed',sans-serif",fontSize:14,fontWeight:900,cursor:"pointer",marginBottom:14,letterSpacing:".04em"}}>
               🏋️ REJOINDRE CE CLUB
             </button>
           )}
-          {myClub?.id===openClub.id&&(
-            <div style={{background:"#001A1A",border:"1px solid #67E8F944",borderRadius:11,padding:"10px 12px",marginBottom:14,textAlign:"center",fontSize:12,color:"#67E8F9",fontWeight:700}}>✓ Tu fais partie de ce club</div>
+          {appState?.gymClubId===openClub.id&&(
+            <div style={{display:"flex",gap:8,marginBottom:14}}>
+              <div style={{flex:1,background:"#001A1A",border:"1px solid #67E8F944",borderRadius:11,padding:"10px 12px",textAlign:"center",fontSize:12,color:"#67E8F9",fontWeight:700}}>✓ Mon club</div>
+              <button onClick={async()=>{await overrides?.leaveClub();setView("ranking");}} style={{padding:"10px 14px",background:"#1A0A0A",border:"1px solid #FF3D3D33",color:"#FF6060",borderRadius:11,fontFamily:"'Barlow Condensed',sans-serif",fontSize:12,fontWeight:700,cursor:"pointer"}}>Quitter</button>
+            </div>
           )}
           <div style={{fontSize:11,fontWeight:900,color:"#555",letterSpacing:".06em",textTransform:"uppercase",marginBottom:10}}>Classement membres</div>
           {clubMembers.map((m,i)=>{

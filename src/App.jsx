@@ -496,6 +496,9 @@ export default function App() {
     if (!supaSession) return
     await supabase.from('profiles').update({ gym_club_id: clubId }).eq('id', supaSession.user.id)
     await loadProfile(supaSession.user.id)
+    // Force reload club data
+    const { data } = await supabase.from('gym_clubs').select('id,chain,city,name').eq('id', clubId).maybeSingle()
+    if (data) setClubData(data)
   }
 
   async function leaveClub() {
@@ -524,6 +527,7 @@ export default function App() {
       if (error) throw new Error(error.message)
       clubId = created.id
     }
+    // joinClub already reloads club data
     await joinClub(clubId)
   }
 
