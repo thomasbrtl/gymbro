@@ -678,7 +678,22 @@ export default function App() {
               if (sessionMax > newScore) newScore = sessionMax
             }
           } else if (ch.type === 'streak') {
+            // 1 par jour max pour streak aussi
+            const todayStrSt = new Date().toDateString()
+            const lastScoreDateSt = ch.last_session_date || ''
+            if (lastScoreDateSt === todayStrSt) continue
             newScore += 1
+            const isExpiredSt = ch.end_date && new Date(ch.end_date) < new Date()
+            if (isExpiredSt) {
+              const csSt = isChallenger ? newScore : (ch.challenger_score||0)
+              const osSt = isChallenger ? (ch.opponent_score||0) : newScore
+              const winnerSt = csSt > osSt ? ch.challenger_id : csSt < osSt ? ch.opponent_id : null
+              await supabase.from('challenges').update({ [scoreField]: newScore, status: 'finished', winner_id: winnerSt, last_session_date: todayStrSt }).eq('id', ch.id)
+            } else {
+              await supabase.from('challenges').update({ [scoreField]: newScore, last_session_date: todayStrSt }).eq('id', ch.id)
+            }
+            loadChallenges()
+            continue
           }
           // Check if challenge expired
           const isExpired = ch.end_date && new Date(ch.end_date) < new Date()

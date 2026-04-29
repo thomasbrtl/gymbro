@@ -626,6 +626,7 @@ function SupabaseSignup({ onOk, goBack }) {
 function AppMain({appState,updateState,onLogout,overrides={}}){
   const [tab,setTab]=useState("feed");
   const [viewProfile,setViewProfile]=useState(null);
+  const [pendingConvId,setPendingConvId]=useState(null);
   const [viewPostGlobal,setViewPostGlobal]=useState(null);
   const [showNotifs,setShowNotifs]=useState(false);
   const [editProfileOpen,setEditProfileOpen]=useState(false);
@@ -843,7 +844,7 @@ function AppMain({appState,updateState,onLogout,overrides={}}){
       {/* Content */}
       <div className="sa" style={{height:"calc(100vh - 56px - env(safe-area-inset-top,0px) - env(safe-area-inset-bottom,0px) - 56px)",paddingBottom:16}}>
         {tab==="feed"     && <FeedTab appState={appState} updateState={updateState} addPost={addPost} onOpenProfile={p=>setViewProfile(p)} toggleLike={toggleLike} addComment={addComment} toggleFollow={toggleFollow} following={following} av={av} myPseudo={user.pseudo} myAvatarVal={user.avatar||""}/>}
-        {tab==="messages" && <MessagesTab conversations={conversations} user={user} av={av} updateState={updateState} appState={appState} overrides={overrides} onOpenProfile={p=>setViewProfile(p)}/>}
+        {tab==="messages" && <MessagesTab conversations={conversations} user={user} av={av} updateState={updateState} appState={appState} overrides={overrides} onOpenProfile={p=>setViewProfile(p)} initialConvId={pendingConvId} onConvOpened={()=>setPendingConvId(null)}/>}
         {tab==="program"  && <ProgramTab appState={appState} updateState={updateState} saveSession={saveSession}/>}
         {tab==="trophies" && <TrophiesTab stats={stats} user={user} updateState={updateState}/>}
         {tab==="ranked"   && <RankedTab appState={{...appState,_openProfile:(p)=>setViewProfile(p)}} updateState={updateState} rank={rank} nextRank={nextRank} rankPct={rankPct} stats={stats} giveXP={giveXP}/>}
@@ -910,7 +911,7 @@ function AppMain({appState,updateState,onLogout,overrides={}}){
           <FullUserProfile post={viewProfile} posts={posts} following={following} toggleFollow={toggleFollow}
               onClose={()=>setViewProfile(null)}
               onMessage={(id,p,av,fb)=>{
-                // Create conversation if not exists, then open it
+                // Create conversation if not exists
                 updateState(s=>{
                   const exists=(s.conversations||[]).some(cv=>cv.withId===id||cv.id===id);
                   if(!exists){
@@ -919,10 +920,9 @@ function AppMain({appState,updateState,onLogout,overrides={}}){
                   }
                   return s;
                 });
+                setPendingConvId(id);
                 setViewProfile(null);
                 setTab("messages");
-                // Signal MessagesTab to open this conv — use longer delay to ensure mount
-                setTimeout(()=>window.dispatchEvent(new CustomEvent("gymbro_open_conv",{detail:{convId:id}})),300);
               }}
               myPseudo={user.pseudo} av={av} userAvatar={user.avatar}
               myStats={stats} myUser={user} appState={appState}
@@ -1318,7 +1318,7 @@ const DEFI_PRESETS = [
 ];
 
 // ══════════════════════ MESSAGES ══
-function MessagesTab({conversations,user,av,updateState,appState,overrides,onOpenProfile}){
+function MessagesTab({conversations,user,av,updateState,appState,overrides,onOpenProfile,initialConvId,onConvOpened}){
   const [openConv,setOpenConv]=useState(null);
   const [msgSubTab,setMsgSubTab]=useState("messages");
   const [msgText,setMsgText]=useState("");
@@ -1328,15 +1328,14 @@ function MessagesTab({conversations,user,av,updateState,appState,overrides,onOpe
   const conv=openConv?conversations?.find(c=>c.id===openConv):null;
   useEffect(()=>{if(conv&&endRef.current)endRef.current.scrollIntoView({behavior:"smooth"});},[conv,conversations]);
 
-  // Listen for open_conv event from profile message button
+  // Open conversation when navigated from profile
   useEffect(()=>{
-    const handler=(e)=>{
-      const {convId}=e.detail||{};
-      if(convId) setOpenConv(convId);
-    };
-    window.addEventListener("gymbro_open_conv",handler);
-    return()=>window.removeEventListener("gymbro_open_conv",handler);
-  },[]);
+    if(initialConvId){
+      setMsgSubTab("messages");
+      setOpenConv(initialConvId);
+      if(onConvOpened) onConvOpened();
+    }
+  },[initialConvId]);
 
   const sendMsg=()=>{
     if(!msgText.trim()||!conv)return;
@@ -1514,13 +1513,13 @@ function MessagesTab({conversations,user,av,updateState,appState,overrides,onOpe
                   </div>
                   <div style={{display:"flex",gap:7,flexShrink:0}}>
                     <button onClick={()=>{
-                      // Switch to messages sub-tab
                       setMsgSubTab("messages");
-                      if(c){ setOpenConv(c.id); }
-                      else {
+                      if(c){
+                        setOpenConv(c.id);
+                      } else {
                         const newConv={id:uid,withId:uid,withPseudo:pseudo,avatarVal,avatarFallback:avatarFb,messages:[]};
                         updateState(s=>({conversations:[...(s.conversations||[]),newConv]}));
-                        setTimeout(()=>setOpenConv(uid),50);
+                        setOpenConv(uid);
                       }
                     }} style={{background:"#13131A",border:"1px solid #1E1E2E",color:"#888",borderRadius:9,padding:"8px 10px",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>
                       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>

@@ -165,6 +165,7 @@ create table session_history (
 
 alter table session_history enable row level security;
 create policy "Voir ses séances" on session_history for select using (auth.uid() = user_id);
+create policy "Voir séances publiques" on session_history for select using (true);
 create policy "Enregistrer séance" on session_history for insert with check (auth.uid() = user_id);
 
 -- 9. EXERCISES (progression)
