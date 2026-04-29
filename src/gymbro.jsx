@@ -1212,31 +1212,42 @@ function FullUserProfile({post,posts,following,toggleFollow,onClose,onMessage,my
         </div>
         <div style={{fontSize:18,fontWeight:900,marginBottom:4,color:"#F0F0F0"}}>@{post.pseudo}</div>
         <span className="rb" style={{background:rank.color+"22",color:rank.color,marginBottom:10,display:"inline-flex"}}>{rank.icon} {rank.name} · {displayStats.points.toLocaleString()} XP</span>
-        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6,marginTop:12,marginBottom:14}}>
-          {[
-            {l:"Posts",v:userPosts.length},
-            {l:"Séances",v:displayStats.sessions},
-            {l:"XP",v:displayStats.points.toLocaleString()}
-          ].map((s,i)=>(
-            <div key={i} style={{background:"#0D0D14",borderRadius:10,padding:"10px 6px",textAlign:"center"}}>
-              <div style={{fontSize:16,fontWeight:900,color:"#F0F0F0"}}>{s.v}</div>
-              <div style={{color:"#888",fontSize:10,fontWeight:600}}>{s.l}</div>
+        {(()=>{
+          const totalLikes=userPosts.reduce((sum,p)=>(p.likes?.length||0)+sum,0);
+          return(
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6,marginTop:12,marginBottom:14}}>
+              {[
+                {l:"Posts",v:userPosts.length},
+                {l:"Likes",v:totalLikes.toLocaleString()},
+                {l:"XP",v:displayStats.points.toLocaleString()}
+              ].map((s,i)=>(
+                <div key={i} style={{background:"#0D0D14",borderRadius:10,padding:"10px 6px",textAlign:"center"}}>
+                  <div style={{fontSize:16,fontWeight:900,color:"#F0F0F0"}}>{s.v}</div>
+                  <div style={{color:"#888",fontSize:10,fontWeight:600}}>{s.l}</div>
+                </div>
+              ))}
             </div>
-          ))}
-        </div>
-        {(pinnedTrophies.length>0||unlocked.length>0)&&<div style={{marginBottom:14}}>
-          <div style={{fontSize:13,fontWeight:800,marginBottom:8,color:"#E0E0E0"}}>
-            {pinnedTrophies.length>0?"TROPHÉES ÉPINGLÉS":"TROPHÉES"}
+          );
+        })()}
+        {/* ── Trophées épinglés ── */}
+        {(pinnedTrophies.length>0||unlocked.length>0)&&(
+          <div style={{marginBottom:14}}>
+            <div style={{fontSize:11,fontWeight:800,color:"#555",letterSpacing:".08em",textTransform:"uppercase",marginBottom:8}}>
+              {pinnedTrophies.length>0?"Trophées épinglés":"Trophées"}
+            </div>
+            <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+              {(pinnedTrophies.length>0?pinnedTrophies:unlocked.slice(0,3)).map(t=>(
+                <div key={t.id} style={{flex:1,minWidth:80,background:RC[t.rarity]+"14",border:`1px solid ${RC[t.rarity]}44`,borderRadius:12,padding:"10px 8px",display:"flex",flexDirection:"column",alignItems:"center",gap:4}}>
+                  <div style={{fontSize:26}}>{t.icon}</div>
+                  <div style={{fontSize:11,fontWeight:800,color:RC[t.rarity],textAlign:"center",lineHeight:1.2}}>{t.name}</div>
+                  <div style={{fontSize:10,color:"#555",textAlign:"center",fontFamily:"'Barlow',sans-serif",lineHeight:1.2}}>{t.desc}</div>
+                </div>
+              ))}
+            </div>
           </div>
-          <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
-            {(pinnedTrophies.length>0?pinnedTrophies:unlocked.slice(0,9)).map(t=>(
-              <div key={t.id} title={t.name} style={{width:38,height:38,borderRadius:9,background:RC[t.rarity]+"18",border:`1px solid ${RC[t.rarity]}44`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:18}}>{t.icon}</div>
-            ))}
-            {pinnedTrophies.length===0&&unlocked.length>9&&<div style={{width:38,height:38,borderRadius:9,background:"#13131A",border:"1px solid #2A2A3A",display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,color:"#888",fontWeight:700}}>+{unlocked.length-9}</div>}
-          </div>
-        </div>}
+        )}
         <div style={{display:"flex",borderBottom:"1px solid #1E1E28",marginBottom:10}}>
-          {["posts","stats","PRs"].map(t=><button key={t} className={`tab-b ${profTab===t?"on":""}`} onClick={()=>setProfTab(t)} style={{textTransform:"uppercase"}}>{t}</button>)}
+          {["posts","prs"].map(t=><button key={t} className={`tab-b ${profTab===t?"on":""}`} onClick={()=>setProfTab(t)} style={{textTransform:"uppercase"}}>{t==="prs"?"PRs":t}</button>)}
         </div>
         {profTab==="posts"&&(userPosts.length===0
           ?<div style={{textAlign:"center",padding:"24px 0",color:"#444",fontSize:13}}>Aucun post.</div>
@@ -1248,32 +1259,8 @@ function FullUserProfile({post,posts,following,toggleFollow,onClose,onMessage,my
               </div>
             ))}
           </div>)}
-        {profTab==="stats"&&(
-          <div style={{padding:"4px 0"}}>
-            {(()=>{
-              const sourceExercises=isMe&&appState?appState.exercises:otherExercises;
-              const entries=Object.entries(sourceExercises||{});
-              if(entries.length===0)return <div style={{textAlign:"center",padding:"32px 0",color:"#444"}}><div style={{fontSize:32,marginBottom:8}}>💪</div><div style={{fontSize:13}}>Aucun exercice enregistré</div></div>;
-              return entries.map(([exName,history])=>{
-                const allSets=Array.isArray(history)&&history.length>0
-                  ?(history[0]?.sets?history.flatMap(h=>h.sets||[]):history)
-                  :[];
-                const prVal=allSets.map(s=>Number(s.weight)||0).reduce((a,b)=>Math.max(a,b),0);
-                if(!prVal)return null;
-                return(
-                  <div key={exName} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 0",borderBottom:"1px solid #1A1A24"}}>
-                    <span style={{fontSize:13,fontWeight:600,color:"#DDD"}}>{exName}</span>
-                    <span style={{fontWeight:900,fontSize:15,color:"#FBBF24"}}>{prVal}<span style={{fontSize:10,color:"#555",marginLeft:3}}>kg PR</span></span>
-                  </div>
-                );
-              });
-            })()}
-          </div>)}
-        {profTab==="PRs"&&<div style={{paddingBottom:20}}>
-          <div style={{background:"linear-gradient(135deg,#FBBF2422,#0D0D14)",border:"1px solid #FBBF2433",borderRadius:11,padding:"11px 14px",marginBottom:12,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-            <div style={{fontSize:13,color:"#E0E0E0",fontWeight:700}}>PRs validés</div>
-            <div style={{fontSize:22,fontWeight:900,color:"#FBBF24"}}>{displayStats.prs}</div>
-          </div>
+        
+        {profTab==="prs"&&<div style={{paddingBottom:20}}>
           {(()=>{
             // For own profile: use local exercises. For others: use fetched exercises
             const sourceExercises=isMe&&appState?appState.exercises:otherExercises;
