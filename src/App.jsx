@@ -48,6 +48,7 @@ function writeLocal(patch) {
   const cur = readLocal()
   const next = { ...cur, ...patch }
   localStorage.setItem(_localKey, JSON.stringify(next))
+}
 
 // ── Push notifications ──
 const VAPID_PUBLIC_KEY = import.meta.env.VITE_VAPID_PUBLIC_KEY || ''
@@ -84,8 +85,6 @@ async function sendPushTo(userId, title, body, tag) {
   try {
     await supabase.functions.invoke('send-push', { body: { userId, title, body, tag } })
   } catch (e) { console.warn('sendPush failed:', e) }
-}
-  return next
 }
 
 // ── Rank helper ──
@@ -564,7 +563,7 @@ export default function App() {
     const { count: weekCount } = await supabase.from('solo_challenges').select('*', { count: 'exact', head: true }).eq('user_id', supaSession.user.id).gte('created_at', weekStart.toISOString())
     if (weekCount && weekCount >= 1) throw new Error('1 défi perso maximum par semaine')
     // ── XP réduit ──
-    const xpReward = durationDays <= 7 ? 100 : durationDays <= 14 ? 200 : durationDays <= 30 ? 350 : 500
+    const xpReward = 150 // XP fixe pour tous les défis solo
     const endDate = new Date(Date.now() + durationDays * 86400000).toISOString()
     const { error } = await supabase.from('solo_challenges').insert({
       user_id: supaSession.user.id, type, exercise: exercise || null,
@@ -705,7 +704,7 @@ export default function App() {
       await supabase.from('solo_challenges').update({ current: newCurrent, status: newStatus }).eq('id', sc.id)
       if (xpBonus > 0) {
         await supabase.from('profiles').update({ points: (profile?.points||0) + xpBonus }).eq('id', supaSession.user.id)
-        sendPushTo(supaSession.user.id, '🎯 Défi solo accompli !', `+${xpBonus} XP — ${sc.title}`, 'solo_success')
+        sendPushTo(supaSession.user.id, '🎯 Défi solo accompli !', `+${xpBonus} XP — ${sc.title}`, 'solo_success').catch(()=>{})
         // In-app notif via supabase notifications table
         supabase.from('notifications').insert({ user_id: supaSession.user.id, from_id: supaSession.user.id, type: 'solo_success' }).then(()=>{}).catch(()=>{})
       }

@@ -485,11 +485,15 @@ function SupabaseBridge({ callbacks, externalAppState, isAuthenticated, external
       const res = await saveSession(dayName, programName, result, durationSec, (localPatch) => {
         if (externalSaveLocal) externalSaveLocal(localPatch);
       });
-      // XP toasts — fire after session saved
+      // XP toasts + notifs — fire after session saved
       if (res?.xpGain > 0) {
         if (res.isNewDay) giveXP(50, "Séance complétée !", "🏋️");
         if (res.isEarly && res.isNewDay) giveXP(75, "Séance Early Bird 🌅", "🌅");
         if (res.prCount > 0) giveXP(res.prCount * 150, res.prCount + " nouveau" + (res.prCount > 1 ? "x" : "") + " PR !", "💪");
+      }
+      // Always notify session done even if no XP (not new day)
+      if (!res?.isNewDay && res !== undefined) {
+        addNotif("🏋️", "Séance enregistrée — continue comme ça !");
       }
     };
 
@@ -628,6 +632,14 @@ function AppMain({appState,updateState,onLogout,overrides={}}){
   const [toasts,setToasts]=useState([]);
 
   const {user,stats,posts=[],programs=[],exercises={},sessionHistory=[],country="France",following=[],conversations=[]}=appState;
+  const challenges=appState.challenges||[];
+  const prevChallengesRef=useRef([]);
+  useEffect(()=>{
+    const prev=prevChallengesRef.current;
+    const newPending=challenges.filter(ch=>ch.status==="pending"&&ch.opponentPseudo===user.pseudo&&!prev.some(p=>p.id===ch.id));
+    newPending.forEach(ch=>addNotif("⚡",`@${ch.challengerPseudo} te lance un défi : ${ch.title}`));
+    prevChallengesRef.current=challenges;
+  },[challenges]);
   const rank=getRank(stats.points);
   const nextRank=getNextRank(stats.points);
   const rankPct=nextRank?((stats.points-rank.min)/(nextRank.min-rank.min))*100:100;
@@ -662,12 +674,13 @@ function AppMain({appState,updateState,onLogout,overrides={}}){
 
   const giveXP=useCallback((amount,reason,icon="⚡")=>{
     addToast({icon,title:reason,msg:`+${amount} XP`,color:"#FBBF24",xp:amount});
+    addNotif(icon,`${reason} — +${amount} XP`);
     updateState(s=>{
       const newStats={...s.stats,points:s.stats.points+amount};
       checkTrophies(newStats,s.stats,s.user);
       return {stats:newStats};
     });
-  },[addToast,updateState,checkTrophies]);
+  },[addToast,addNotif,updateState,checkTrophies]);
 
   const _addPost=p=>{
     const newPost={...p,id:genId(),userId:"me",pseudo:user.pseudo,avatarVal:user.avatar||"",avatarFallback:av,rankTier:getRank(stats.points).tier,rankName:getRank(stats.points).name,rankColor:getRank(stats.points).color,rankIcon:getRank(stats.points).icon,points:stats.points,ts:Date.now(),likes:[],commentsList:[],imgPos:p.imgPos||"center"};
@@ -893,7 +906,21 @@ function AppMain({appState,updateState,onLogout,overrides={}}){
         <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,width:"100vw",height:"100vh",background:"#0A0A0F",zIndex:999,overflowY:"auto",WebkitOverflowScrolling:"touch"}}>
           <FullUserProfile post={viewProfile} posts={posts} following={following} toggleFollow={toggleFollow}
               onClose={()=>setViewProfile(null)}
-              onMessage={(id,p,av,fb)=>{setViewProfile(null);setTab("messages");}}
+              onMessage={(id,p,av,fb)=>{
+                // Create conversation if not exists, then open it
+                updateState(s=>{
+                  const exists=(s.conversations||[]).some(cv=>cv.withId===id||cv.id===id);
+                  if(!exists){
+                    const newConv={id,withId:id,withPseudo:p,avatarVal:av,avatarFallback:fb,messages:[]};
+                    return{conversations:[...(s.conversations||[]),newConv]};
+                  }
+                  return s;
+                });
+                setViewProfile(null);
+                setTab("messages");
+                // Signal MessagesTab to open this conv
+                setTimeout(()=>window.dispatchEvent(new CustomEvent("gymbro_open_conv",{detail:{convId:id}})),100);
+              }}
               myPseudo={user.pseudo} av={av} userAvatar={user.avatar}
               myStats={stats} myUser={user} appState={appState}
               onOpenPost={(p)=>setViewPostGlobal(p)}/>
@@ -1120,12 +1147,38 @@ function FullUserProfile({post,posts,following,toggleFollow,onClose,onMessage,my
   const userPosts=posts.filter(p=>p.pseudo===post.pseudo&&p.mediaUrl);
   const displayUser=isMe&&myUser?myUser:null;
   // For own profile use real stats; for others use post snapshot + profile data attached to post
+  const [fetchedProfile,setFetchedProfile]=useState(null);
+  useEffect(()=>{
+    if(isMe||!post.userId||post.userId==="me")return;
+    import('./supabase.js').then(({supabase:sb})=>{
+      // Fetch profile stats
+      sb.from('profiles').select('sessions,prs,points,pseudo,avatar_url').eq('id',post.userId).maybeSingle()
+        .then(({data})=>{ if(data) setFetchedProfile(p=>({...p,...data})); });
+      // Fetch exercise records for PR display
+      sb.from('session_history').select('exercises').eq('user_id',post.userId).order('created_at',{ascending:false}).limit(50)
+        .then(({data})=>{
+          if(!data)return;
+          const exMap={};
+          data.forEach(row=>{
+            (row.exercises||[]).forEach(ex=>{
+              if(!exMap[ex.name])exMap[ex.name]=[];
+              exMap[ex.name].push(...(ex.sets||[]));
+            });
+          });
+          setFetchedProfile(p=>({...p,exercises:exMap}));
+        });
+    }).catch(()=>{});
+  },[post.userId,isMe]);
+
   const displayStats=isMe&&myStats?myStats:{
-    sessions:0,prs:0,points:post.points||0,
+    sessions:fetchedProfile?.sessions||0,
+    prs:fetchedProfile?.prs||0,
+    points:fetchedProfile?.points||post.points||0,
     earlySession:false,nightSession:false,weekendSessions:0,
     posts:userPosts.length,streak:0,totalLikes:0,
     followers:0,following:0,commentsSent:0,changedCountry:false
   };
+  const otherExercises=fetchedProfile?.exercises||{};
   const liveRank=getRank(displayStats.points);
   const rank=isMe&&myStats?liveRank:{name:post.rankName||"Silver I",color:post.rankColor||"#94A3B8",icon:post.rankIcon||"🥈",tier:post.rankTier||"silver"};
   const isFollowing=following.some(f=>f.id===post.userId);
@@ -1152,7 +1205,7 @@ function FullUserProfile({post,posts,following,toggleFollow,onClose,onMessage,my
           <Avatar val={post.avatarVal||""} fallback={post.avatarFallback||"👤"} size={72} border={rank.color}/>
           {!isMe&&<div style={{display:"flex",gap:8,marginTop:4}}>
             <button onClick={()=>toggleFollow(post.userId)} style={{background:isFollowing?"#1A1A24":"#FF3D3D",border:isFollowing?"1px solid #333":"none",color:"#FFF",padding:"8px 18px",borderRadius:10,fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>{isFollowing?"✓ Suivi":"+Follow"}</button>
-            <button onClick={()=>onMessage(post.userId,post.pseudo,post.avatarVal||"",post.avatarFallback||"👤")} style={{background:"#1A1A24",border:"1px solid #2A2A3A",color:"#CCC",padding:"8px 14px",borderRadius:10,fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>💬</button>
+            <button onClick={()=>onMessage(post.userId,post.pseudo,post.avatarVal||"",post.avatarFallback||"👤")} style={{background:"#1A1A24",border:"1px solid #2A2A3A",color:"#CCC",padding:"8px 14px",borderRadius:10,fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>💬 Message</button>
           </div>}
         </div>
         <div style={{fontSize:18,fontWeight:900,marginBottom:4,color:"#F0F0F0"}}>@{post.pseudo}</div>
@@ -1258,6 +1311,16 @@ function MessagesTab({conversations,user,av,updateState,appState,overrides,onOpe
   const endRef=useRef(null);
   const conv=openConv?conversations?.find(c=>c.id===openConv):null;
   useEffect(()=>{if(conv&&endRef.current)endRef.current.scrollIntoView({behavior:"smooth"});},[conv,conversations]);
+
+  // Listen for open_conv event from profile message button
+  useEffect(()=>{
+    const handler=(e)=>{
+      const {convId}=e.detail||{};
+      if(convId) setOpenConv(convId);
+    };
+    window.addEventListener("gymbro_open_conv",handler);
+    return()=>window.removeEventListener("gymbro_open_conv",handler);
+  },[]);
 
   const sendMsg=()=>{
     if(!msgText.trim()||!conv)return;
@@ -3160,11 +3223,12 @@ const SOLO_PRESETS = [
   {id:"sessions",   icon:"🔥",title:"Séances régulières",    desc:"Complète X séances en Y jours",    type:"sessions",exercise:null,             unit:"séances"},
   {id:"volume",     icon:"📊",title:"Volume total",          desc:"Soulève X kg au total sur la période",type:"volume",exercise:null,            unit:"kg"},
 ];
-const SOLO_DURATIONS = [{d:7,l:"7 jours",xp:300},{d:14,l:"14 jours",xp:600},{d:30,l:"30 jours",xp:1000},{d:60,l:"60 jours",xp:1500}];
+const SOLO_XP = 150; // XP fixe pour tout défi solo
+const SOLO_DURATIONS = [{d:7,l:"7 jours"},{d:14,l:"14 jours"},{d:30,l:"30 jours"}];
 
 function SoloChallengeModal({current, onClose, onCreate, onDelete, appState}){
   const [preset,setPreset]=useState(null);
-  const [duration,setDuration]=useState(SOLO_DURATIONS[2]);
+  const [duration,setDuration]=useState(SOLO_DURATIONS[1]); // default 14j
   const [target,setTarget]=useState("");
   const [loading,setLoading]=useState(false);
 
@@ -3190,7 +3254,18 @@ function SoloChallengeModal({current, onClose, onCreate, onDelete, appState}){
         <div className="modal-handle" style={{flexShrink:0}}/>
         <div className="sa" style={{flex:1,padding:"0 16px",minHeight:0}}>
           <div style={{fontSize:22,fontWeight:900,marginBottom:4}}>🎯 Défi solo</div>
-          <div style={{fontSize:13,color:"#555",fontFamily:"'Barlow',sans-serif",marginBottom:16,lineHeight:1.4}}>1 défi actif à la fois. Atteins ton objectif pour gagner des XP.</div>
+          {(()=>{
+            const now=new Date();
+            const dayOfWeek=now.getDay(); // 0=sun, 1=mon
+            const daysUntilMonday=dayOfWeek===0?1:(8-dayOfWeek)%7||7;
+            const nextMonday=new Date(now); nextMonday.setDate(now.getDate()+daysUntilMonday); nextMonday.setHours(0,0,0,0);
+            const msLeft=nextMonday-now;
+            const dLeft=Math.floor(msLeft/86400000); const hLeft=Math.floor((msLeft%86400000)/3600000);
+            return <div style={{fontSize:13,color:"#555",fontFamily:"'Barlow',sans-serif",marginBottom:16,lineHeight:1.5}}>
+              1 défi perso par semaine · <span style={{color:"#FBBF24",fontWeight:700}}>+{SOLO_XP} XP</span> si objectif atteint
+              {!current&&<div style={{marginTop:4,fontSize:11,color:"#444"}}>🔄 Renouvellement dans {dLeft}j {hLeft}h</div>}
+            </div>;
+          })()}
 
           {/* Défi en cours */}
           {current&&(
@@ -3198,7 +3273,7 @@ function SoloChallengeModal({current, onClose, onCreate, onDelete, appState}){
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
                 <div>
                   <div style={{fontWeight:900,fontSize:15,marginBottom:2}}>{current.title}</div>
-                  <div style={{fontSize:11,color:"#555",fontFamily:"'Barlow',sans-serif"}}>⏱ {timeLeft(current.endDate)} · +{current.xpReward} XP</div>
+                  <div style={{fontSize:11,color:"#555",fontFamily:"'Barlow',sans-serif"}}>⏱ {timeLeft(current.endDate)} · +{current.xpReward||150} XP si objectif atteint</div>
                 </div>
                 <button onClick={onDelete} style={{background:"none",border:"none",color:"#444",cursor:"pointer",fontSize:14}}>✕</button>
               </div>
@@ -3278,7 +3353,7 @@ function SoloChallengeModal({current, onClose, onCreate, onDelete, appState}){
             const canLaunch=preset&&target&&!loading&&!prInvalid;
             return <button onClick={canLaunch?launch:undefined} disabled={!canLaunch}
               style={{width:"100%",padding:"14px",background:canLaunch?"linear-gradient(135deg,#FF3D3D,#CC2020)":"#1A1A24",border:"none",color:canLaunch?"#FFF":"#444",borderRadius:12,fontFamily:"'Barlow Condensed',sans-serif",fontSize:16,fontWeight:900,cursor:canLaunch?"pointer":"not-allowed",letterSpacing:".06em",transition:"all .2s"}}>
-              {loading?"Lancement...":prInvalid?`⚠️ Min. ${minTarget}kg requis`:canLaunch?`🎯 LANCER — ${duration.xp} XP À LA CLÉ`:"Choisis un défi et un objectif"}
+              {loading?"Lancement...":prInvalid?`⚠️ Min. ${minTarget}kg requis`:canLaunch?`🎯 LANCER — ${SOLO_XP} XP`:"Choisis un défi et un objectif"}
             </button>;
           })()}
         </div>}
