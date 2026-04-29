@@ -1155,16 +1155,25 @@ function FullUserProfile({post,posts,following,toggleFollow,onClose,onMessage,my
     import('./supabase.js').then(({supabase:sb})=>{
       Promise.all([
         sb.from('profiles').select('sessions,prs,points,pseudo,avatar_url').eq('id',post.userId).maybeSingle(),
-        sb.from('session_history').select('exercises').eq('user_id',post.userId).order('created_at',{ascending:false}).limit(50)
-      ]).then(([profRes,histRes])=>{
+        sb.from('session_history').select('exercises').eq('user_id',post.userId).order('created_at',{ascending:false}).limit(100),
+        sb.from('exercise_records').select('exercise_name,weight,reps,set_number').eq('user_id',post.userId).order('created_at',{ascending:false}).limit(500)
+      ]).then(([profRes,histRes,recRes])=>{
         const profData=profRes.data||{};
         const exMap={};
+        // From session_history
         (histRes.data||[]).forEach(row=>{
           (row.exercises||[]).forEach(ex=>{
             if(!ex?.name)return;
             if(!exMap[ex.name])exMap[ex.name]=[];
-            exMap[ex.name].push(...(ex.sets||[]));
+            const sets=(ex.sets||[]).filter(s=>(s.weight||0)>0);
+            exMap[ex.name].push(...sets);
           });
+        });
+        // From exercise_records (fallback / additional source)
+        (recRes.data||[]).forEach(rec=>{
+          if(!rec?.exercise_name||(rec.weight||0)<=0)return;
+          if(!exMap[rec.exercise_name])exMap[rec.exercise_name]=[];
+          exMap[rec.exercise_name].push({weight:rec.weight,reps:rec.reps||0});
         });
         setFetchedProfile({...profData,exercises:exMap});
       });

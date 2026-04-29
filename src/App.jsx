@@ -637,7 +637,18 @@ export default function App() {
       supabase.from('profiles').update(statUp).eq('id', supaSession.user.id)
         .then(({ error }) => {
           if (error) { console.warn('stats update:', error.message) }
-          else { loadProfile(supaSession.user.id) }
+          else {
+            loadProfile(supaSession.user.id)
+            // Update rank on all user posts when points change
+            if (xpGain > 0) {
+              const newPoints = (profile.points || 0) + xpGain
+              const newRank = getRankInfo(newPoints)
+              supabase.from('posts')
+                .update({ rank_name: newRank.name, rank_color: newRank.color, rank_icon: newRank.icon, points: newPoints })
+                .eq('user_id', supaSession.user.id)
+                .then(({ error: e }) => { if (e) console.warn('posts rank update:', e.message) })
+            }
+          }
         })
     }
 
