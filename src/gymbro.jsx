@@ -1527,11 +1527,13 @@ function MessagesTab({conversations,user,av,updateState,appState,overrides,onOpe
                     <button onClick={()=>{
                       setMsgSubTab("messages");
                       if(c){
-                        setOpenConv(c.id);
+                        // Conv existe — ouvrir directement
+                        setDirectTarget({id:c.withId||c.id,pseudo:c.withPseudo,avatarVal:c.avatarVal||"",avatarFallback:c.avatarFallback||"👤"});
+                        setOpenConv(null);
                       } else {
-                        const newConv={id:uid,withId:uid,withPseudo:pseudo,avatarVal,avatarFallback:avatarFb,messages:[]};
-                        updateState(s=>({conversations:[...(s.conversations||[]),newConv]}));
-                        setOpenConv(uid);
+                        // Nouvelle conv — créer via directTarget
+                        setDirectTarget({id:uid,pseudo,avatarVal,avatarFallback:avatarFb});
+                        setOpenConv(null);
                       }
                     }} style={{background:"#13131A",border:"1px solid #1E1E2E",color:"#888",borderRadius:9,padding:"8px 10px",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>
                       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
