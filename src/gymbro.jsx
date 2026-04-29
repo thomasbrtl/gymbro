@@ -1351,29 +1351,21 @@ function MessagesTab({conversations,user,av,updateState,appState,overrides,onOpe
   const sendMsg=()=>{
     if(!msgText.trim()||!conv)return;
     const text=msgText.trim(); setMsgText("");
-    // If this is a new conversation (from directTarget), persist it first
-    if(directTarget&&!convFromList){
-      updateState(s=>{
-        const exists=(s.conversations||[]).some(cv=>cv.id===conv.id||cv.withId===conv.withId);
-        if(!exists) return{conversations:[...s.conversations,{...conv,messages:[{id:genId(),from:"me",text,ts:Date.now()}]}]};
-        return{conversations:(s.conversations||[]).map(cv=>cv.id===conv.id||cv.withId===conv.withId?{...cv,messages:[...cv.messages,{id:genId(),from:"me",text,ts:Date.now()}]}:cv)};
-      });
-      setDirectTarget(null);
-      setOpenConv(conv.id);
-    } else {
-    // Optimistic local update
+    const toId=conv.withId||conv.id;
+    if(!toId||toId==="me")return;
+    // Persist conv locally if new
     updateState(s=>{
-      const convs=(s.conversations||[]).map(cv=>cv.id!==conv.id&&cv.withId!==conv.withId?cv:{...cv,messages:[...cv.messages,{id:genId(),from:"me",text,ts:Date.now()}]});
-      return {conversations:convs};
+      const exists=(s.conversations||[]).some(cv=>cv.id===toId||cv.withId===toId);
+      const msg={id:genId(),from:"me",text,ts:Date.now()};
+      if(!exists){
+        return{conversations:[...(s.conversations||[]),{id:toId,withId:toId,withPseudo:conv.withPseudo,avatarVal:conv.avatarVal||"",avatarFallback:conv.avatarFallback||"👤",messages:[msg]}]};
+      }
+      return{conversations:(s.conversations||[]).map(cv=>(cv.id===toId||cv.withId===toId)?{...cv,messages:[...cv.messages,msg]}:cv)};
     });
-    // Send via Supabase bridge
-    if(conv.withId&&conv.withId!=="me"){
-      window.dispatchEvent(new CustomEvent("gymbro_sendmsg",{detail:{toId:conv.withId,toPseudo:conv.withPseudo,avatarVal:conv.avatarVal||"",avatarFb:conv.avatarFallback||"👤",text}}));
-    } else if(conv.id&&conv.id!=="me"){
-      window.dispatchEvent(new CustomEvent("gymbro_sendmsg",{detail:{toId:conv.id,toPseudo:conv.withPseudo,avatarVal:conv.avatarVal||"",avatarFb:conv.avatarFallback||"👤",text}}));
-    }
-    } // close else block for existing conv
-  };
+    if(directTarget){setDirectTarget(null);setOpenConv(toId);}
+    // Send via Supabase
+    window.dispatchEvent(new CustomEvent("gymbro_sendmsg",{detail:{toId,toPseudo:conv.withPseudo,avatarVal:conv.avatarVal||"",avatarFb:conv.avatarFallback||"👤",text}}));
+  };;
 
   const launchDefi=async()=>{
     if(!selPreset)return;
