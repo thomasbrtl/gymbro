@@ -123,6 +123,7 @@ export default function App() {
   const [notifs, setNotifs]             = useState([])
   const [conversations, setConversations] = useState([])
   const [challenges, setChallenges]       = useState([])
+  const [clubData, setClubData]           = useState(null) // current user's club
   const [referrals, setReferrals]         = useState({ code:'', list:[], count:0 })
   const [soloChallenge, setSoloChallenge] = useState(null)
   const [localData, setLocalData]         = useState({})
@@ -144,7 +145,7 @@ export default function App() {
         setLocalKey(session.user.id)
         const saved = readLocal()
         setLocalData(saved)
-        loadProfile(session.user.id).then(() => setAuthLoading(false))
+        loadProfile(session.user.id).then(() => { setAuthLoading(false); loadClub(); })
         registerPush(session.user.id)
       } else {
         setAuthLoading(false)
@@ -480,6 +481,52 @@ export default function App() {
     loadFeed()
   }
 
+  // ══════════════════════ CLUBS ══
+  const loadClub = useCallback(async () => {
+    if (!supaSession?.user?.id || !profile?.gym_club_id) { setClubData(null); return }
+    const { data } = await supabase
+      .from('gym_clubs')
+      .select('id, chain, city, name')
+      .eq('id', profile.gym_club_id)
+      .maybeSingle()
+    setClubData(data || null)
+  }, [supaSession, profile?.gym_club_id])
+
+  async function joinClub(clubId) {
+    if (!supaSession) return
+    await supabase.from('profiles').update({ gym_club_id: clubId }).eq('id', supaSession.user.id)
+    await loadProfile(supaSession.user.id)
+  }
+
+  async function leaveClub() {
+    if (!supaSession) return
+    await supabase.from('profiles').update({ gym_club_id: null }).eq('id', supaSession.user.id)
+    setClubData(null)
+    await loadProfile(supaSession.user.id)
+  }
+
+  async function createAndJoinClub(chain, city) {
+    if (!supaSession) return
+    // Check if club already exists
+    const { data: existing } = await supabase
+      .from('gym_clubs')
+      .select('id')
+      .eq('chain', chain)
+      .eq('city', city)
+      .maybeSingle()
+    let clubId = existing?.id
+    if (!clubId) {
+      const { data: created, error } = await supabase
+        .from('gym_clubs')
+        .insert({ chain, city })
+        .select('id')
+        .single()
+      if (error) throw new Error(error.message)
+      clubId = created.id
+    }
+    await joinClub(clubId)
+  }
+
   // ══════════════════════ REFERRALS ══
   const loadReferrals = useCallback(async () => {
     if (!supaSession?.user?.id) return
@@ -788,6 +835,7 @@ export default function App() {
         updateCountry: async (c) => { if (!supaSession) return; await supabase.from('profiles').update({ country: c }).eq('id', supaSession.user.id); await loadProfile(supaSession.user.id) },
         createChallenge, respondChallenge, deleteChallenge,
         createSoloChallenge, deleteSoloChallenge,
+        joinClub, leaveClub, createAndJoinClub,
       }}
       externalAppState={null}
       isAuthenticated={false}
@@ -817,6 +865,8 @@ export default function App() {
     exercises:      localData.exercises      || {},
     sessionHistory: localData.sessionHistory || [],
     country:  profile?.country || 'France',
+    gymClubId: profile?.gym_club_id || null,
+    gymClub: clubData,
     following: follows, conversations, notifs, challenges, referrals, soloChallenge,
   }
 
@@ -833,6 +883,7 @@ export default function App() {
       updateCountry: async (c) => { await supabase.from('profiles').update({ country: c }).eq('id', supaSession.user.id); await loadProfile(supaSession.user.id) },
       createChallenge, respondChallenge, deleteChallenge,
       createSoloChallenge, deleteSoloChallenge,
+      joinClub, leaveClub, createAndJoinClub,
     }}
     externalAppState={appState}
     isAuthenticated={true}

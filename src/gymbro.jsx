@@ -1144,7 +1144,7 @@ function CreatePostModal({onClose,onSubmit}){
 }
 
 // ══════════════════════ FULL USER PROFILE ══
-function FullUserProfile({post,posts,following,toggleFollow,onClose,onMessage,myPseudo,av,userAvatar,myStats,myUser,appState,onOpenPost}){
+function FullUserProfile({post,posts,following,toggleFollow,onClose,onMessage,myPseudo,av,userAvatar,myStats,myUser,appState,onOpenPost,onOpenClub}){
   const isMe=post.userId==="me"||post.pseudo===myPseudo;
   // Define userPosts FIRST so it can be used in displayStats
   const userPosts=posts.filter(p=>p.pseudo===post.pseudo&&p.mediaUrl);
@@ -1154,11 +1154,18 @@ function FullUserProfile({post,posts,following,toggleFollow,onClose,onMessage,my
     if(isMe||!post.userId||post.userId==="me")return;
     import('./supabase.js').then(({supabase:sb})=>{
       Promise.all([
-        sb.from('profiles').select('sessions,prs,points,pseudo,avatar_url').eq('id',post.userId).maybeSingle(),
+        sb.from('profiles').select('sessions,prs,points,pseudo,avatar_url,gym_club_id').eq('id',post.userId).maybeSingle(),
         sb.from('session_history').select('exercises').eq('user_id',post.userId).order('created_at',{ascending:false}).limit(100),
         sb.from('exercise_records').select('exercise_name,weight,reps,set_number').eq('user_id',post.userId).order('created_at',{ascending:false}).limit(500)
       ]).then(([profRes,histRes,recRes])=>{
         const profData=profRes.data||{};
+        // Fetch club name if user has a club
+        if(profData.gym_club_id){
+          sb.from('gym_clubs').select('id,chain,city').eq('id',profData.gym_club_id).maybeSingle()
+            .then(({data:clubD})=>{
+              if(clubD) setFetchedProfile(fp=>fp?{...fp,gym_club_name:`${clubD.chain} ${clubD.city}`,gym_club_id:clubD.id}:fp);
+            });
+        }
         const exMap={};
         // From session_history
         (histRes.data||[]).forEach(row=>{
@@ -1221,6 +1228,12 @@ function FullUserProfile({post,posts,following,toggleFollow,onClose,onMessage,my
         </div>
         <div style={{fontSize:18,fontWeight:900,marginBottom:4,color:"#F0F0F0"}}>@{post.pseudo}</div>
         <span className="rb" style={{background:rank.color+"22",color:rank.color,marginBottom:10,display:"inline-flex"}}>{rank.icon} {rank.name} · {displayStats.points.toLocaleString()} XP</span>
+        {(fetchedProfile?.gym_club_name||post._gymClub)&&(
+          <div style={{display:"flex",alignItems:"center",gap:6,marginTop:4,marginBottom:6,cursor:"pointer"}} onClick={()=>onOpenClub&&onOpenClub(fetchedProfile?.gym_club_id||post._gymClubId)}>
+            <span style={{fontSize:13}}>🏋️</span>
+            <span style={{fontSize:12,color:"#67E8F9",fontWeight:700,textDecoration:"underline",fontFamily:"'Barlow',sans-serif"}}>{fetchedProfile?.gym_club_name||post._gymClub}</span>
+          </div>
+        )}
         {(()=>{
           const totalLikes=userPosts.reduce((sum,p)=>(p.likes?.length||0)+sum,0);
           return(
@@ -1300,6 +1313,14 @@ function FullUserProfile({post,posts,following,toggleFollow,onClose,onMessage,my
 
 
 
+
+// ══════════════════════ GYM CHAINS ══
+const GYM_CHAINS = [
+  "Basic-Fit","Fitness Park","L'Orange Bleue","Keep Cool","Neoness",
+  "Movida","Wellness","Reebok Sport Club","WeFit","Gofit",
+  "Cercle de la Forme","BodyKap","Chlorophylle","Complexe sportif municipal",
+  "Salle indépendante","Autres",
+];
 
 // ══════════════════════ DEFI PRESETS ══
 const DEFI_PRESETS = [
@@ -1455,6 +1476,7 @@ function MessagesTab({conversations,user,av,updateState,appState,overrides,onOpe
           <button className={`tab-b ${msgSubTab==="defis"?"on":""}`} onClick={()=>setMsgSubTab("defis")}>
             DÉFIS {activeChallenges.length>0&&<span style={{background:"#FBBF24",color:"#000",borderRadius:"50%",width:16,height:16,display:"inline-flex",alignItems:"center",justifyContent:"center",fontSize:9,fontWeight:900,marginLeft:4}}>{activeChallenges.length}</span>}
           </button>
+          <button className={`tab-b ${msgSubTab==="clubs"?"on":""}`} onClick={()=>setMsgSubTab("clubs")}>CLUBS</button>
         </div>
       </div>
 
@@ -1630,6 +1652,11 @@ function MessagesTab({conversations,user,av,updateState,appState,overrides,onOpe
             </div>
           )}
         </div>
+      )}
+
+      {/* ── CLUBS ── */}
+      {msgSubTab==="clubs"&&(
+        <ClubsTab appState={appState} overrides={overrides} onOpenProfile={onOpenProfile}/>
       )}
 
       {/* MODAL LANCER UN DÉFI */}
@@ -2934,6 +2961,7 @@ function ProfileTab({appState,updateState,rank,imc,av,onEdit,onLogout,posts,chec
   const soloChallenge=appState.soloChallenge||null;
   const [profTab,setProfTab]=useState("posts");
   const [showPinModal,setShowPinModal]=useState(false);
+  const [showClubModal,setShowClubModal]=useState(false);
   const [selPinnedTrophy,setSelPinnedTrophy]=useState(null);
   const [viewPost,setViewPost]=useState(null);
   const [showSoloModal,setShowSoloModal]=useState(false);
@@ -2964,7 +2992,19 @@ function ProfileTab({appState,updateState,rank,imc,av,onEdit,onLogout,posts,chec
         </div>
       </div>
       {user.bio&&<div style={{color:"#888",fontSize:12,fontFamily:"'Barlow',sans-serif",marginBottom:6,lineHeight:1.4,marginTop:5}}>{user.bio}</div>}
-      <div style={{color:"#555",fontSize:11,fontFamily:"'Barlow',sans-serif",marginBottom:12,marginTop:4}}>{user.age} ans · {user.sexe} · {user.poids}kg · {user.taille}cm{imc?` · IMC ${imc}`:""}</div>
+      <div style={{color:"#555",fontSize:11,fontFamily:"'Barlow',sans-serif",marginBottom:6,marginTop:4}}>{user.age} ans · {user.sexe} · {user.poids}kg · {user.taille}cm{imc?` · IMC ${imc}`:""}</div>
+      {/* Club */}
+      {appState?.gymClub
+        ?<div onClick={()=>setShowClubModal(true)} style={{display:"inline-flex",alignItems:"center",gap:6,background:"#001A1A",border:"1px solid #67E8F944",borderRadius:8,padding:"5px 10px",cursor:"pointer",marginBottom:10}}>
+           <span style={{fontSize:13}}>🏋️</span>
+           <span style={{fontSize:12,color:"#67E8F9",fontWeight:700}}>{appState.gymClub.chain} {appState.gymClub.city}</span>
+           <span style={{fontSize:10,color:"#444"}}>· changer</span>
+         </div>
+        :<div onClick={()=>setShowClubModal(true)} style={{display:"inline-flex",alignItems:"center",gap:6,background:"#001A1A",border:"1px dashed #67E8F933",borderRadius:8,padding:"5px 10px",cursor:"pointer",marginBottom:10}}>
+           <span style={{fontSize:13}}>🏋️</span>
+           <span style={{fontSize:12,color:"#67E8F988",fontWeight:700}}>Ajouter mon club</span>
+         </div>
+      }
 
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6,marginBottom:12}}>
         {[{l:"Posts",v:myPosts.length},{l:"Abonnés",v:stats.followers||0},{l:"Abonnements",v:(appState.following||[]).length}].map((s,i)=>(
@@ -3227,6 +3267,13 @@ function ProfileTab({appState,updateState,rank,imc,av,onEdit,onLogout,posts,chec
       )}
 
       {/* ── SOLO CHALLENGE MODAL ── */}
+      {showClubModal&&(
+        <ClubModal
+          currentClub={appState?.gymClub}
+          overrides={overrides}
+          onClose={()=>setShowClubModal(false)}
+        />
+      )}
       {showSoloModal&&(
         <SoloChallengeModal
           current={soloChallenge}
@@ -3239,6 +3286,259 @@ function ProfileTab({appState,updateState,rank,imc,av,onEdit,onLogout,posts,chec
           onDelete={async()=>{await overrides?.deleteSoloChallenge?.(soloChallenge?.id);setShowSoloModal(false);}}
         />
       )}
+    </div>
+  );
+}
+
+// ══════════════════════ CLUB COMPONENTS ══
+
+function ClubModal({currentClub, overrides, onClose}){
+  const [mode,setMode]=useState(currentClub?"manage":"search"); // search | create | manage
+  const [query,setQuery]=useState("");
+  const [results,setResults]=useState([]);
+  const [chain,setChain]=useState("");
+  const [city,setCity]=useState("");
+  const [loading,setLoading]=useState(false);
+  const [searching,setSearching]=useState(false);
+
+  useEffect(()=>{
+    if(query.length<2){setResults([]);return;}
+    setSearching(true);
+    const t=setTimeout(async()=>{
+      try{
+        const {supabase:sb}=await import('./supabase.js');
+        const {data}=await sb.from('gym_clubs').select('id,chain,city,name')
+          .ilike('name',`%${query}%`).limit(10);
+        setResults(data||[]);
+      }catch{}
+      setSearching(false);
+    },400);
+    return()=>clearTimeout(t);
+  },[query]);
+
+  const join=async(clubId)=>{
+    setLoading(true);
+    try{await overrides.joinClub(clubId);onClose();}
+    catch(e){alert(e.message);}
+    setLoading(false);
+  };
+
+  const create=async()=>{
+    if(!chain||!city.trim()){alert("Choisis une enseigne et une ville");return;}
+    setLoading(true);
+    try{await overrides.createAndJoinClub(chain,city.trim());onClose();}
+    catch(e){alert(e.message);}
+    setLoading(false);
+  };
+
+  return(
+    <div className="modal-bg" onTouchMove={e=>e.stopPropagation()} onWheel={e=>e.stopPropagation()} onClick={onClose}>
+      <div className="modal-sheet" onClick={e=>e.stopPropagation()} style={{display:"flex",flexDirection:"column",maxHeight:"85vh"}}>
+        <div className="modal-handle" style={{flexShrink:0}}/>
+        <div className="sa" style={{flex:1,padding:"0 16px 24px",minHeight:0}}>
+          <div style={{fontSize:20,fontWeight:900,marginBottom:4}}>🏋️ Mon club</div>
+          {currentClub&&mode==="manage"&&(
+            <div>
+              <div style={{background:"#001A1A",border:"1px solid #67E8F944",borderRadius:12,padding:"14px",marginBottom:16}}>
+                <div style={{fontSize:11,color:"#67E8F988",fontWeight:700,letterSpacing:".06em",marginBottom:4}}>CLUB ACTUEL</div>
+                <div style={{fontSize:18,fontWeight:900,color:"#67E8F9"}}>{currentClub.chain}</div>
+                <div style={{fontSize:14,color:"#888",fontFamily:"'Barlow',sans-serif"}}>{currentClub.city}</div>
+              </div>
+              <button onClick={()=>setMode("search")} style={{width:"100%",padding:"12px",background:"#FF3D3D18",border:"1px solid #FF3D3D44",color:"#FF6B6B",borderRadius:11,fontFamily:"'Barlow Condensed',sans-serif",fontSize:14,fontWeight:800,cursor:"pointer",marginBottom:8}}>Changer de club</button>
+              <button onClick={async()=>{setLoading(true);await overrides.leaveClub();onClose();}} style={{width:"100%",padding:"10px",background:"transparent",border:"1px solid #2A2A3A",color:"#555",borderRadius:11,fontFamily:"'Barlow Condensed',sans-serif",fontSize:13,fontWeight:700,cursor:"pointer"}}>Quitter mon club</button>
+            </div>
+          )}
+          {(mode==="search"||!currentClub)&&(
+            <div>
+              <div style={{fontSize:12,color:"#555",fontFamily:"'Barlow',sans-serif",marginBottom:14,lineHeight:1.5}}>Recherche ton club par nom ou ville.</div>
+              <input className="inp" placeholder="Ex: Basic-Fit Paris, Fitness Park Lyon..." value={query} onChange={e=>setQuery(e.target.value)} style={{marginBottom:12}}/>
+              {searching&&<div style={{textAlign:"center",color:"#444",fontSize:12,padding:"8px 0"}}>Recherche...</div>}
+              {results.map(r=>(
+                <div key={r.id} onClick={()=>join(r.id)} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"11px 12px",background:"#0D0D14",border:"1px solid #1A1A24",borderRadius:10,marginBottom:6,cursor:"pointer"}}>
+                  <div>
+                    <div style={{fontWeight:800,fontSize:13}}>{r.chain}</div>
+                    <div style={{fontSize:11,color:"#555",fontFamily:"'Barlow',sans-serif"}}>{r.city}</div>
+                  </div>
+                  <span style={{color:"#67E8F9",fontSize:12,fontWeight:700}}>Rejoindre →</span>
+                </div>
+              ))}
+              {query.length>=2&&!searching&&results.length===0&&(
+                <div style={{textAlign:"center",padding:"16px 0"}}>
+                  <div style={{color:"#555",fontSize:13,marginBottom:12,fontFamily:"'Barlow',sans-serif"}}>Club introuvable — tu peux le créer !</div>
+                  <button onClick={()=>setMode("create")} style={{background:"#67E8F918",border:"1px solid #67E8F944",color:"#67E8F9",borderRadius:10,padding:"9px 18px",fontFamily:"'Barlow Condensed',sans-serif",fontSize:13,fontWeight:800,cursor:"pointer"}}>+ Créer ce club</button>
+                </div>
+              )}
+              {query.length<2&&(
+                <div onClick={()=>setMode("create")} style={{textAlign:"center",padding:"14px 0",cursor:"pointer"}}>
+                  <span style={{color:"#444",fontSize:12,fontFamily:"'Barlow',sans-serif"}}>Mon club n'est pas listé → </span>
+                  <span style={{color:"#67E8F9",fontSize:12,fontWeight:700}}>le créer</span>
+                </div>
+              )}
+            </div>
+          )}
+          {mode==="create"&&(
+            <div>
+              <div style={{fontSize:12,color:"#555",fontFamily:"'Barlow',sans-serif",marginBottom:14,lineHeight:1.5}}>Crée ton club. Choisis une enseigne reconnue + indique la ville exacte.</div>
+              <div style={{marginBottom:10}}>
+                <div style={{fontSize:10,fontWeight:800,color:"#555",letterSpacing:".08em",marginBottom:5,textTransform:"uppercase"}}>Enseigne *</div>
+                <select className="inp" value={chain} onChange={e=>setChain(e.target.value)} style={{cursor:"pointer"}}>
+                  <option value="">Choisir une enseigne...</option>
+                  {GYM_CHAINS.map(g=><option key={g} value={g}>{g}</option>)}
+                </select>
+              </div>
+              <div style={{marginBottom:16}}>
+                <div style={{fontSize:10,fontWeight:800,color:"#555",letterSpacing:".08em",marginBottom:5,textTransform:"uppercase"}}>Ville *</div>
+                <input className="inp" placeholder="Ex: Paris, Lyon, Besançon..." value={city} onChange={e=>setCity(e.target.value)}/>
+                <div style={{fontSize:10,color:"#444",marginTop:4,fontFamily:"'Barlow',sans-serif"}}>Ex: "Basic-Fit Besançon" — sois précis pour que tes collègues te retrouvent</div>
+              </div>
+              <div style={{display:"flex",gap:8}}>
+                <button onClick={()=>setMode("search")} style={{flex:1,padding:"12px",background:"#1A1A24",border:"1px solid #2A2A3A",color:"#888",borderRadius:11,fontFamily:"'Barlow Condensed',sans-serif",fontSize:13,fontWeight:700,cursor:"pointer"}}>← Retour</button>
+                <button onClick={create} disabled={loading||!chain||!city.trim()} style={{flex:2,padding:"12px",background:chain&&city.trim()?"linear-gradient(135deg,#67E8F9,#0EA5E9)":"#1A1A24",border:"none",color:chain&&city.trim()?"#000":"#444",borderRadius:11,fontFamily:"'Barlow Condensed',sans-serif",fontSize:14,fontWeight:900,cursor:chain&&city.trim()?"pointer":"not-allowed",letterSpacing:".04em"}}>
+                  {loading?"Création...":"🏋️ CRÉER & REJOINDRE"}
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ClubsTab({appState, overrides, onOpenProfile}){
+  const [view,setView]=useState("ranking"); // ranking | clubPage
+  const [openClub,setOpenClub]=useState(null);
+  const [ranking,setRanking]=useState([]);
+  const [clubMembers,setClubMembers]=useState([]);
+  const [loadingRank,setLoadingRank]=useState(true);
+  const myClub=appState?.gymClub;
+
+  useEffect(()=>{
+    const load=async()=>{
+      setLoadingRank(true);
+      try{
+        const {supabase:sb}=await import('./supabase.js');
+        const {data}=await sb.from('clubs_ranking').select('*').limit(50);
+        setRanking(data||[]);
+      }catch{}
+      setLoadingRank(false);
+    };
+    load();
+  },[]);
+
+  const openClubPage=async(club)=>{
+    setOpenClub(club);
+    setView("clubPage");
+    try{
+      const {supabase:sb}=await import('./supabase.js');
+      const {data}=await sb.from('profiles')
+        .select('id,pseudo,points,avatar_url,sexe')
+        .eq('gym_club_id',club.id)
+        .order('points',{ascending:false})
+        .limit(50);
+      setClubMembers(data||[]);
+    }catch{}
+  };
+
+  if(view==="clubPage"&&openClub){
+    const totalXP=(openClub.total_xp||0).toLocaleString();
+    return(
+      <div>
+        <div style={{display:"flex",alignItems:"center",gap:10,padding:"14px 16px",borderBottom:"1px solid #1A1A24",position:"sticky",top:0,background:"#0A0A0FEE",backdropFilter:"blur(14px)",zIndex:10}}>
+          <button onClick={()=>setView("ranking")} style={{background:"none",border:"none",color:"#888",cursor:"pointer",display:"flex",alignItems:"center"}}>
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+          </button>
+          <div>
+            <div style={{fontWeight:900,fontSize:16}}>{openClub.chain}</div>
+            <div style={{fontSize:11,color:"#555",fontFamily:"'Barlow',sans-serif"}}>{openClub.city}</div>
+          </div>
+        </div>
+        <div style={{padding:"14px 14px 0"}}>
+          <div style={{display:"flex",gap:6,marginBottom:14}}>
+            <div style={{flex:1,background:"#0D0D14",borderRadius:10,padding:"11px 8px",textAlign:"center",border:"1px solid #1A1A24"}}>
+              <div style={{fontSize:18,fontWeight:900,color:"#67E8F9"}}>{openClub.member_count||clubMembers.length}</div>
+              <div style={{fontSize:10,color:"#555",fontWeight:700}}>MEMBRES</div>
+            </div>
+            <div style={{flex:1,background:"#0D0D14",borderRadius:10,padding:"11px 8px",textAlign:"center",border:"1px solid #1A1A24"}}>
+              <div style={{fontSize:18,fontWeight:900,color:"#FBBF24"}}>{totalXP}</div>
+              <div style={{fontSize:10,color:"#555",fontWeight:700}}>XP CUMULÉ</div>
+            </div>
+          </div>
+          {myClub?.id!==openClub.id&&(
+            <button onClick={()=>overrides?.joinClub(openClub.id)} style={{width:"100%",padding:"11px",background:"linear-gradient(135deg,#67E8F9,#0EA5E9)",border:"none",color:"#000",borderRadius:11,fontFamily:"'Barlow Condensed',sans-serif",fontSize:14,fontWeight:900,cursor:"pointer",marginBottom:14,letterSpacing:".04em"}}>
+              🏋️ REJOINDRE CE CLUB
+            </button>
+          )}
+          {myClub?.id===openClub.id&&(
+            <div style={{background:"#001A1A",border:"1px solid #67E8F944",borderRadius:11,padding:"10px 12px",marginBottom:14,textAlign:"center",fontSize:12,color:"#67E8F9",fontWeight:700}}>✓ Tu fais partie de ce club</div>
+          )}
+          <div style={{fontSize:11,fontWeight:900,color:"#555",letterSpacing:".06em",textTransform:"uppercase",marginBottom:10}}>Classement membres</div>
+          {clubMembers.map((m,i)=>{
+            const r=getRank(m.points||0);
+            return(
+              <div key={m.id} onClick={()=>onOpenProfile&&onOpenProfile({userId:m.id,pseudo:m.pseudo,avatarVal:m.avatar_url||"",rankName:r.name,rankColor:r.color,rankTier:r.tier,points:m.points||0})} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 0",borderBottom:"1px solid #1A1A24",cursor:"pointer"}}>
+                <div style={{width:22,fontWeight:900,fontSize:12,color:i<3?"#FBBF24":"#333",flexShrink:0}}>#{i+1}</div>
+                <div style={{width:36,height:36,borderRadius:"50%",background:"#1A1A24",border:`2px solid ${r.color}44`,overflow:"hidden",display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,flexShrink:0}}>
+                  {m.avatar_url?<img src={m.avatar_url} style={{width:"100%",height:"100%",objectFit:"cover"}} alt=""/>:<span>{m.sexe==="femme"?"👩":"👨"}</span>}
+                </div>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontWeight:800,fontSize:13}}>@{m.pseudo}</div>
+                  <div style={{display:"flex",alignItems:"center",gap:4,marginTop:1}}>
+                    <RankBadge tier={r.tier} size={13}/>
+                    <span style={{fontSize:10,color:r.color,fontWeight:700}}>{r.name}</span>
+                  </div>
+                </div>
+                <div style={{fontWeight:800,color:r.color,fontSize:13}}>{(m.points||0).toLocaleString()}</div>
+              </div>
+            );
+          })}
+          {clubMembers.length===0&&<div style={{textAlign:"center",padding:"40px 0",color:"#444"}}><div style={{fontSize:32,marginBottom:8}}>👥</div><div style={{fontSize:13}}>Aucun membre encore</div></div>}
+        </div>
+      </div>
+    );
+  }
+
+  return(
+    <div>
+      <div style={{padding:"14px 14px 0"}}>
+        {/* My club card */}
+        {myClub?(
+          <div onClick={()=>openClubPage({...myClub,id:appState.gymClubId,total_xp:0,member_count:0})} style={{background:"linear-gradient(135deg,#001A1A,#0D0D14)",border:"1px solid #67E8F944",borderRadius:14,padding:"14px",marginBottom:16,cursor:"pointer"}}>
+            <div style={{fontSize:10,fontWeight:800,color:"#67E8F988",letterSpacing:".08em",marginBottom:4}}>MON CLUB</div>
+            <div style={{fontWeight:900,fontSize:17,color:"#67E8F9"}}>{myClub.chain}</div>
+            <div style={{fontSize:13,color:"#888",fontFamily:"'Barlow',sans-serif"}}>{myClub.city}</div>
+            <div style={{fontSize:11,color:"#67E8F966",marginTop:6}}>Voir la page du club →</div>
+          </div>
+        ):(
+          <div style={{background:"#0D0D14",border:"1px dashed #67E8F933",borderRadius:14,padding:"14px",marginBottom:16,textAlign:"center"}}>
+            <div style={{fontSize:26,marginBottom:6}}>🏋️</div>
+            <div style={{fontWeight:800,fontSize:14,marginBottom:4}}>Pas encore de club</div>
+            <div style={{fontSize:12,color:"#555",fontFamily:"'Barlow',sans-serif",marginBottom:10}}>Rejoins ton club pour apparaître dans le classement</div>
+            <div style={{fontSize:11,color:"#67E8F988"}}>Ajoute ton club depuis ton profil</div>
+          </div>
+        )}
+
+        {/* Global ranking */}
+        <div style={{fontSize:11,fontWeight:900,color:"#555",letterSpacing:".06em",textTransform:"uppercase",marginBottom:10}}>🏆 CLASSEMENT GÉNÉRAL</div>
+        {loadingRank&&<div style={{textAlign:"center",padding:"20px 0",color:"#444",fontSize:12}}>Chargement...</div>}
+        {ranking.map((club,i)=>{
+          const isMyClub=club.id===appState?.gymClubId;
+          return(
+            <div key={club.id} onClick={()=>openClubPage(club)} style={{display:"flex",alignItems:"center",gap:10,padding:"11px 12px",background:isMyClub?"#001A1A":"#0D0D14",borderRadius:11,marginBottom:6,border:`1px solid ${isMyClub?"#67E8F944":"#1A1A24"}`,cursor:"pointer"}}>
+              <div style={{width:26,fontWeight:900,fontSize:13,color:i===0?"#FFD700":i===1?"#94A3B8":i===2?"#CD7F32":"#333",flexShrink:0}}>#{i+1}</div>
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{fontWeight:800,fontSize:13,color:isMyClub?"#67E8F9":"#F0F0F0"}}>{club.chain}{isMyClub&&<span style={{fontSize:9,color:"#67E8F9",marginLeft:4}}>(toi)</span>}</div>
+                <div style={{fontSize:11,color:"#555",fontFamily:"'Barlow',sans-serif"}}>{club.city} · {club.member_count} membre{club.member_count>1?"s":""}</div>
+              </div>
+              <div style={{textAlign:"right",flexShrink:0}}>
+                <div style={{fontWeight:800,color:"#FBBF24",fontSize:13}}>{Number(club.total_xp).toLocaleString()}</div>
+                <div style={{fontSize:9,color:"#444"}}>XP</div>
+              </div>
+            </div>
+          );
+        })}
+        {!loadingRank&&ranking.length===0&&<div style={{textAlign:"center",padding:"32px 0",color:"#444"}}><div style={{fontSize:32,marginBottom:8}}>🏋️</div><div style={{fontSize:13}}>Aucun club enregistré pour l'instant</div></div>}
+      </div>
     </div>
   );
 }
