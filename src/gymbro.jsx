@@ -1337,8 +1337,12 @@ function MessagesTab({conversations,user,av,updateState,appState,overrides,onOpe
     }
   },[pendingConvTarget]);
 
-  // conv: from conversations array OR synthesized from directTarget
-  const convFromList = openConv ? (conversations||[]).find(cv=>cv.id===openConv||cv.withId===openConv) : null;
+  // conv: prioritize existing conv from array, then directTarget
+  const convFromList = openConv
+    ? (conversations||[]).find(cv=>cv.id===openConv||cv.withId===openConv)
+    : directTarget
+      ? (conversations||[]).find(cv=>cv.id===directTarget.id||cv.withId===directTarget.id)
+      : null;
   const conv = convFromList || (directTarget ? {
     id: directTarget.id,
     withId: directTarget.id,
