@@ -1324,10 +1324,22 @@ function MessagesTab({conversations,user,av,updateState,appState,overrides,onOpe
   const [msgText,setMsgText]=useState("");
   const [showDefiModal,setShowDefiModal]=useState(null);
   const [selPreset,setSelPreset]=useState(null);
+  const [directTarget,setDirectTarget]=useState(null);
   const endRef=useRef(null);
+
+  // Open conversation when navigated from profile
+  useEffect(()=>{
+    if(pendingConvTarget){
+      setMsgSubTab("messages");
+      setDirectTarget(pendingConvTarget);
+      setOpenConv(null);
+      if(onConvOpened) onConvOpened();
+    }
+  },[pendingConvTarget]);
+
   // conv: from conversations array OR synthesized from directTarget
-  const convFromList = openConv ? conversations?.find(cv=>cv.id===openConv||cv.withId===openConv) : null;
-  const conv = convFromList || (directTarget&&!openConv ? {
+  const convFromList = openConv ? (conversations||[]).find(cv=>cv.id===openConv||cv.withId===openConv) : null;
+  const conv = convFromList || (directTarget ? {
     id: directTarget.id,
     withId: directTarget.id,
     withPseudo: directTarget.pseudo,
@@ -1335,18 +1347,8 @@ function MessagesTab({conversations,user,av,updateState,appState,overrides,onOpe
     avatarFallback: directTarget.avatarFallback||"👤",
     messages: []
   } : null);
-  useEffect(()=>{if(conv&&endRef.current)endRef.current.scrollIntoView({behavior:"smooth"});},[conv,conversations]);
 
-  // Pending conversation target (from profile message button)
-  const [directTarget,setDirectTarget]=useState(null);
-  useEffect(()=>{
-    if(pendingConvTarget){
-      setMsgSubTab("messages");
-      setDirectTarget(pendingConvTarget);
-      setOpenConv(null); // clear any open conv — we use directTarget instead
-      if(onConvOpened) onConvOpened();
-    }
-  },[pendingConvTarget]);
+  useEffect(()=>{if(conv&&endRef.current)endRef.current.scrollIntoView({behavior:"smooth"});},[conv,conversations]);
 
   const sendMsg=()=>{
     if(!msgText.trim()||!conv)return;
@@ -1365,7 +1367,7 @@ function MessagesTab({conversations,user,av,updateState,appState,overrides,onOpe
     if(directTarget){setDirectTarget(null);setOpenConv(toId);}
     // Send via Supabase
     window.dispatchEvent(new CustomEvent("gymbro_sendmsg",{detail:{toId,toPseudo:conv.withPseudo,avatarVal:conv.avatarVal||"",avatarFb:conv.avatarFallback||"👤",text}}));
-  };;
+  };
 
   const launchDefi=async()=>{
     if(!selPreset)return;
