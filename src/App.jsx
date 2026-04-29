@@ -492,6 +492,11 @@ export default function App() {
     setClubData(data || null)
   }, [supaSession, profile?.gym_club_id])
 
+  // Auto-reload club whenever profile.gym_club_id changes (including on page refresh)
+  useEffect(() => {
+    if (supaSession && profile) loadClub()
+  }, [profile?.gym_club_id, supaSession])
+
   async function joinClub(clubId) {
     if (!supaSession) return
     await supabase.from('profiles').update({ gym_club_id: clubId }).eq('id', supaSession.user.id)
