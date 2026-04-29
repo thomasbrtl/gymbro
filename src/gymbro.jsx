@@ -626,7 +626,7 @@ function SupabaseSignup({ onOk, goBack }) {
 function AppMain({appState,updateState,onLogout,overrides={}}){
   const [tab,setTab]=useState("feed");
   const [viewProfile,setViewProfile]=useState(null);
-  const [pendingConvId,setPendingConvId]=useState(null);
+  const [pendingConvTarget,setPendingConvTarget]=useState(null);
   const [viewPostGlobal,setViewPostGlobal]=useState(null);
   const [showNotifs,setShowNotifs]=useState(false);
   const [editProfileOpen,setEditProfileOpen]=useState(false);
@@ -844,7 +844,7 @@ function AppMain({appState,updateState,onLogout,overrides={}}){
       {/* Content */}
       <div className="sa" style={{height:"calc(100vh - 56px - env(safe-area-inset-top,0px) - env(safe-area-inset-bottom,0px) - 56px)",paddingBottom:16}}>
         {tab==="feed"     && <FeedTab appState={appState} updateState={updateState} addPost={addPost} onOpenProfile={p=>setViewProfile(p)} toggleLike={toggleLike} addComment={addComment} toggleFollow={toggleFollow} following={following} av={av} myPseudo={user.pseudo} myAvatarVal={user.avatar||""}/>}
-        {tab==="messages" && <MessagesTab conversations={conversations} user={user} av={av} updateState={updateState} appState={appState} overrides={overrides} onOpenProfile={p=>setViewProfile(p)} initialConvId={pendingConvId} onConvOpened={()=>setPendingConvId(null)}/>}
+        {tab==="messages" && <MessagesTab conversations={conversations} user={user} av={av} updateState={updateState} appState={appState} overrides={overrides} onOpenProfile={p=>setViewProfile(p)} pendingConvTarget={pendingConvTarget} onConvOpened={()=>setPendingConvTarget(null)}/>}
         {tab==="program"  && <ProgramTab appState={appState} updateState={updateState} saveSession={saveSession}/>}
         {tab==="trophies" && <TrophiesTab stats={stats} user={user} updateState={updateState}/>}
         {tab==="ranked"   && <RankedTab appState={{...appState,_openProfile:(p)=>setViewProfile(p)}} updateState={updateState} rank={rank} nextRank={nextRank} rankPct={rankPct} stats={stats} giveXP={giveXP}/>}
@@ -920,7 +920,7 @@ function AppMain({appState,updateState,onLogout,overrides={}}){
                   }
                   return s;
                 });
-                setPendingConvId(id);
+                setPendingConvTarget({id,pseudo:p,avatarVal:av,avatarFallback:fb});
                 setViewProfile(null);
                 setTab("messages");
               }}
@@ -1318,43 +1318,61 @@ const DEFI_PRESETS = [
 ];
 
 // ══════════════════════ MESSAGES ══
-function MessagesTab({conversations,user,av,updateState,appState,overrides,onOpenProfile,initialConvId,onConvOpened}){
+function MessagesTab({conversations,user,av,updateState,appState,overrides,onOpenProfile,pendingConvTarget,onConvOpened}){
   const [openConv,setOpenConv]=useState(null);
   const [msgSubTab,setMsgSubTab]=useState("messages");
   const [msgText,setMsgText]=useState("");
   const [showDefiModal,setShowDefiModal]=useState(null);
   const [selPreset,setSelPreset]=useState(null);
   const endRef=useRef(null);
-  const conv=openConv?conversations?.find(c=>c.id===openConv):null;
+  // conv: from conversations array OR synthesized from directTarget
+  const convFromList = openConv ? conversations?.find(cv=>cv.id===openConv||cv.withId===openConv) : null;
+  const conv = convFromList || (directTarget&&!openConv ? {
+    id: directTarget.id,
+    withId: directTarget.id,
+    withPseudo: directTarget.pseudo,
+    avatarVal: directTarget.avatarVal||"",
+    avatarFallback: directTarget.avatarFallback||"👤",
+    messages: []
+  } : null);
   useEffect(()=>{if(conv&&endRef.current)endRef.current.scrollIntoView({behavior:"smooth"});},[conv,conversations]);
 
-  // Open conversation when navigated from profile
+  // Pending conversation target (from profile message button)
+  const [directTarget,setDirectTarget]=useState(null);
   useEffect(()=>{
-    if(initialConvId){
+    if(pendingConvTarget){
       setMsgSubTab("messages");
-      setOpenConv(initialConvId);
+      setDirectTarget(pendingConvTarget);
+      setOpenConv(null); // clear any open conv — we use directTarget instead
       if(onConvOpened) onConvOpened();
     }
-  },[initialConvId]);
+  },[pendingConvTarget]);
 
   const sendMsg=()=>{
     if(!msgText.trim()||!conv)return;
     const text=msgText.trim(); setMsgText("");
+    // If this is a new conversation (from directTarget), persist it first
+    if(directTarget&&!convFromList){
+      updateState(s=>{
+        const exists=(s.conversations||[]).some(cv=>cv.id===conv.id||cv.withId===conv.withId);
+        if(!exists) return{conversations:[...s.conversations,{...conv,messages:[{id:genId(),from:"me",text,ts:Date.now()}]}]};
+        return{conversations:(s.conversations||[]).map(cv=>cv.id===conv.id||cv.withId===conv.withId?{...cv,messages:[...cv.messages,{id:genId(),from:"me",text,ts:Date.now()}]}:cv)};
+      });
+      setDirectTarget(null);
+      setOpenConv(conv.id);
+    } else {
     // Optimistic local update
     updateState(s=>{
-      const convs=(s.conversations||[]).map(cv=>cv.id!==conv.id?cv:{...cv,messages:[...cv.messages,{id:genId(),from:"me",text,ts:Date.now()}]});
+      const convs=(s.conversations||[]).map(cv=>cv.id!==conv.id&&cv.withId!==conv.withId?cv:{...cv,messages:[...cv.messages,{id:genId(),from:"me",text,ts:Date.now()}]});
       return {conversations:convs};
     });
     // Send via Supabase bridge
     if(conv.withId&&conv.withId!=="me"){
       window.dispatchEvent(new CustomEvent("gymbro_sendmsg",{detail:{toId:conv.withId,toPseudo:conv.withPseudo,avatarVal:conv.avatarVal||"",avatarFb:conv.avatarFallback||"👤",text}}));
-    } else if(!conv.withId){
-      // withId missing — try using conv.id as user id
-      const guessedId=conv.id;
-      if(guessedId&&guessedId!=="me"){
-        window.dispatchEvent(new CustomEvent("gymbro_sendmsg",{detail:{toId:guessedId,toPseudo:conv.withPseudo,avatarVal:conv.avatarVal||"",avatarFb:conv.avatarFallback||"👤",text}}));
-      }
+    } else if(conv.id&&conv.id!=="me"){
+      window.dispatchEvent(new CustomEvent("gymbro_sendmsg",{detail:{toId:conv.id,toPseudo:conv.withPseudo,avatarVal:conv.avatarVal||"",avatarFb:conv.avatarFallback||"👤",text}}));
     }
+    } // close else block for existing conv
   };
 
   const launchDefi=async()=>{
@@ -1397,11 +1415,11 @@ function MessagesTab({conversations,user,av,updateState,appState,overrides,onOpe
     return"j";
   };
 
-  if(openConv&&conv){
+  if((openConv||directTarget)&&conv){
     return(
       <div style={{display:"flex",flexDirection:"column",height:"calc(100vh - 56px - env(safe-area-inset-top,0px) - env(safe-area-inset-bottom,0px) - 56px)"}}>
         <div style={{display:"flex",alignItems:"center",gap:10,padding:"12px 16px",borderBottom:"1px solid #1A1A24",background:"#0A0A0F",flexShrink:0}}>
-          <button onClick={()=>setOpenConv(null)} style={{background:"none",border:"none",color:"#888",cursor:"pointer",display:"flex",alignItems:"center"}}>
+          <button onClick={()=>{setOpenConv(null);setDirectTarget(null);}} style={{background:"none",border:"none",color:"#888",cursor:"pointer",display:"flex",alignItems:"center"}}>
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
           </button>
           <Avatar val={conv.avatarVal||""} fallback={conv.avatarFallback||"👤"} size={34} border="#2A2A3A"/>

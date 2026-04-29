@@ -247,14 +247,17 @@ export default function App() {
       .eq('user_id', supaSession.user.id)
       .order('created_at', { ascending: false })
       .limit(30)
-    if (data) setNotifs(data.map(n => ({
-      id: n.id,
-      icon: n.type === 'like' ? '❤️' : n.type === 'comment' ? '💬' : '👥',
-      text: n.type === 'like' ? `@${n.from?.pseudo} a liké ton post`
-          : n.type === 'comment' ? `@${n.from?.pseudo} a commenté ton post`
-          : `@${n.from?.pseudo} te suit`,
-      ts: new Date(n.created_at).getTime(), read: n.read,
-    })))
+    if (data) setNotifs(data.map(n => {
+      const pseudo = n.from?.pseudo || '?'
+      let icon, text
+      if (n.type === 'like')         { icon='❤️'; text=`@${pseudo} a liké ton post` }
+      else if (n.type === 'comment') { icon='💬'; text=`@${pseudo} a commenté ton post` }
+      else if (n.type === 'follow')  { icon='👥'; text=`@${pseudo} te suit maintenant` }
+      else if (n.type === 'challenge'){ icon='⚡'; text=`@${pseudo} te lance un défi — réponds dans Social → Amis` }
+      else if (n.type === 'solo_success'){ icon='🎯'; text=`Défi perso accompli ! XP gagné 🏆` }
+      else { icon='🔔'; text=`Nouvelle notification de @${pseudo}` }
+      return { id: n.id, icon, text, ts: new Date(n.created_at).getTime(), read: n.read }
+    }))
   }, [supaSession])
 
   const loadConversations = useCallback(async () => {
