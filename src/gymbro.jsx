@@ -1149,27 +1149,25 @@ function FullUserProfile({post,posts,following,toggleFollow,onClose,onMessage,my
   // Define userPosts FIRST so it can be used in displayStats
   const userPosts=posts.filter(p=>p.pseudo===post.pseudo&&p.mediaUrl);
   const displayUser=isMe&&myUser?myUser:null;
-  // For own profile use real stats; for others use post snapshot + profile data attached to post
   const [fetchedProfile,setFetchedProfile]=useState(null);
   useEffect(()=>{
     if(isMe||!post.userId||post.userId==="me")return;
     import('./supabase.js').then(({supabase:sb})=>{
-      // Fetch profile stats
-      sb.from('profiles').select('sessions,prs,points,pseudo,avatar_url').eq('id',post.userId).maybeSingle()
-        .then(({data})=>{ if(data) setFetchedProfile(p=>({...p,...data})); });
-      // Fetch exercise records for PR display
-      sb.from('session_history').select('exercises').eq('user_id',post.userId).order('created_at',{ascending:false}).limit(50)
-        .then(({data})=>{
-          if(!data)return;
-          const exMap={};
-          data.forEach(row=>{
-            (row.exercises||[]).forEach(ex=>{
-              if(!exMap[ex.name])exMap[ex.name]=[];
-              exMap[ex.name].push(...(ex.sets||[]));
-            });
+      Promise.all([
+        sb.from('profiles').select('sessions,prs,points,pseudo,avatar_url').eq('id',post.userId).maybeSingle(),
+        sb.from('session_history').select('exercises').eq('user_id',post.userId).order('created_at',{ascending:false}).limit(50)
+      ]).then(([profRes,histRes])=>{
+        const profData=profRes.data||{};
+        const exMap={};
+        (histRes.data||[]).forEach(row=>{
+          (row.exercises||[]).forEach(ex=>{
+            if(!ex?.name)return;
+            if(!exMap[ex.name])exMap[ex.name]=[];
+            exMap[ex.name].push(...(ex.sets||[]));
           });
-          setFetchedProfile(p=>({...p,exercises:exMap}));
         });
+        setFetchedProfile({...profData,exercises:exMap});
+      });
     }).catch(()=>{});
   },[post.userId,isMe]);
 
@@ -1182,8 +1180,9 @@ function FullUserProfile({post,posts,following,toggleFollow,onClose,onMessage,my
     followers:0,following:0,commentsSent:0,changedCountry:false
   };
   const otherExercises=fetchedProfile?.exercises||{};
+  // Always use live rank from real fetched points
   const liveRank=getRank(displayStats.points);
-  const rank=isMe&&myStats?liveRank:{name:post.rankName||"Silver I",color:post.rankColor||"#94A3B8",icon:post.rankIcon||"🥈",tier:post.rankTier||"silver"};
+  const rank=liveRank;
   const isFollowing=following.some(f=>f.id===post.userId);
   const [profTab,setProfTab]=useState("posts");
   const [viewPost,setViewPost]=useState(null);
