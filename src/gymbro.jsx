@@ -460,7 +460,8 @@ function SupabaseBridge({ callbacks, externalAppState, isAuthenticated, external
             toggleFollow, sendMessage, updateProfile, saveSession,
             updatePrograms, updatePinnedTrophies, updateTrophyDate, updateCountry,
             createChallenge, respondChallenge, deleteChallenge,
-            createSoloChallenge, deleteSoloChallenge } = callbacks;
+            createSoloChallenge, deleteSoloChallenge,
+            joinClub, leaveClub, createAndJoinClub } = callbacks;
 
     // externalAppState already contains fresh localData (programs/exercises/sessionHistory)
     // because App.jsx builds appState from its own localData state.
@@ -516,6 +517,9 @@ function SupabaseBridge({ callbacks, externalAppState, isAuthenticated, external
           deleteChallenge,
           createSoloChallenge,
           deleteSoloChallenge,
+          joinClub,
+          leaveClub,
+          createAndJoinClub,
           deletePost: async (postId)=>{
             try{
               const {supabase:sb}=await import('./supabase.js');
