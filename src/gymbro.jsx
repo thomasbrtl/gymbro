@@ -973,7 +973,31 @@ function FeedTab({appState,updateState,addPost,onOpenProfile,toggleLike,addComme
   const [commentPostId,setCommentPostId]=useState(null);
   const [commentText,setCommentText]=useState("");
   const [showCreate,setShowCreate]=useState(false);
+  const [userResults,setUserResults]=useState([]);
+  const [searchingUsers,setSearchingUsers]=useState(false);
   const commentRef=useRef(null);
+
+  // Search users when query starts with @ or has 2+ chars
+  useEffect(()=>{
+    const q=search.trim();
+    if(q.length<2){setUserResults([]);return;}
+    const pseudo=q.startsWith("@")?q.slice(1):q;
+    if(!pseudo)return;
+    setSearchingUsers(true);
+    const t=setTimeout(async()=>{
+      try{
+        const {supabase:sb}=await import('./supabase.js');
+        const {data}=await sb.from('profiles')
+          .select('id,pseudo,points,avatar_url,sexe,gym_club_id')
+          .ilike('pseudo',`%${pseudo}%`)
+          .neq('pseudo',myPseudo||"")
+          .limit(8);
+        setUserResults(data||[]);
+      }catch{}
+      setSearchingUsers(false);
+    },350);
+    return()=>clearTimeout(t);
+  },[search,myPseudo]);
 
   const filtered=posts.filter(p=>{
     if(feedTab==="following"&&(p.userId==="me"||!following.some(f=>f.id===p.userId)))return false;
@@ -997,6 +1021,30 @@ function FeedTab({appState,updateState,addPost,onOpenProfile,toggleLike,addComme
           </span>
           <input className="inp" placeholder="#tags, @utilisateurs..." value={search} onChange={e=>setSearch(e.target.value)} style={{paddingLeft:32,fontSize:13,padding:"9px 12px 9px 30px"}}/>
         </div>
+        {/* User search results */}
+        {search.length>=2&&(userResults.length>0||searchingUsers)&&(
+          <div style={{marginBottom:8,background:"#0D0D14",borderRadius:10,border:"1px solid #1A1A24",overflow:"hidden"}}>
+            {searchingUsers&&userResults.length===0&&<div style={{padding:"10px 12px",color:"#444",fontSize:12,fontFamily:"'Barlow',sans-serif"}}>Recherche...</div>}
+            {userResults.map(u=>{
+              const r=getRank(u.points||0);
+              return(
+                <div key={u.id} onClick={()=>{onOpenProfile&&onOpenProfile({userId:u.id,pseudo:u.pseudo,avatarVal:u.avatar_url||"",avatarFallback:u.pseudo?.[0]?.toUpperCase()||"👤",rankName:r.name,rankColor:r.color,rankTier:r.tier,points:u.points||0});setSearch("");}} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 12px",cursor:"pointer",borderBottom:"1px solid #1A1A24"}}>
+                  <div style={{width:36,height:36,borderRadius:"50%",background:"#1A1A24",border:`2px solid ${r.color}44`,overflow:"hidden",display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,flexShrink:0}}>
+                    {u.avatar_url?<img src={u.avatar_url} style={{width:"100%",height:"100%",objectFit:"cover"}} alt=""/>:<span>{u.sexe==="femme"?"👩":"👨"}</span>}
+                  </div>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{fontWeight:800,fontSize:14}}>@{u.pseudo}</div>
+                    <div style={{display:"flex",alignItems:"center",gap:4,marginTop:2}}>
+                      <RankBadge tier={r.tier} size={13}/>
+                      <span style={{fontSize:10,color:r.color,fontWeight:700}}>{r.name}</span>
+                    </div>
+                  </div>
+                  <span style={{fontSize:11,color:"#444"}}>→</span>
+                </div>
+              );
+            })}
+          </div>
+        )}
         <div style={{display:"flex"}}>
           <button className={`tab-b ${feedTab==="following"?"on":""}`} onClick={()=>setFeedTab("following")}>Abonnements</button>
           <button className={`tab-b ${feedTab==="discover"?"on":""}`} onClick={()=>setFeedTab("discover")}>Découvrir</button>
