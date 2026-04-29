@@ -3044,6 +3044,7 @@ function ProfileTab({appState,updateState,rank,imc,av,onEdit,onLogout,posts,chec
   const [viewPost,setViewPost]=useState(null);
   const [showSoloModal,setShowSoloModal]=useState(false);
   const [showReferralModal,setShowReferralModal]=useState(false);
+  const [sharePR,setSharePR]=useState(null);
   const unlocked=TROPHIES.filter(t=>t.condition(stats));
   const pinned=(user.pinnedTrophies||[]).map(id=>TROPHIES.find(t=>t.id===id)).filter(Boolean);
   const myPosts=posts.filter(p=>p.userId==="me");
@@ -3218,11 +3219,18 @@ function ProfileTab({appState,updateState,rank,imc,av,onEdit,onLogout,posts,chec
                 const history=(appState.exercises||{})[name];
                 if(!history||history.length===0)return null;
                 const pr=history.flatMap(h=>h.sets.map(s=>Number(s.weight)||0)).reduce((a,b)=>Math.max(a,b),0);
+                const prReps=history.flatMap(h=>h.sets.filter(s=>Number(s.weight)===pr)).map(s=>Number(s.reps)||1)[0]||1;
                 if(pr===0)return null;
                 return(
                   <div key={name} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 10px",background:"#0D0D14",borderRadius:8,marginBottom:5,border:"1px solid #1A1A24"}}>
                     <span style={{fontSize:12,color:"#E0E0E0",fontWeight:600}}>{name}</span>
-                    <span style={{fontSize:14,fontWeight:900,color:"#FBBF24"}}>{pr} kg</span>
+                    <div style={{display:"flex",alignItems:"center",gap:8}}>
+                      <span style={{fontSize:14,fontWeight:900,color:"#FBBF24"}}>{pr} kg</span>
+                      <button onClick={()=>setSharePR({exercise:name,weight:pr,reps:prReps,pseudo:user.pseudo,rankName:rank.name,rankTier:rank.tier})}
+                        style={{background:"#FF3D3D18",border:"1px solid #FF3D3D44",color:"#FF6B6B",borderRadius:6,padding:"4px 8px",fontFamily:"'Barlow Condensed',sans-serif",fontSize:11,fontWeight:800,cursor:"pointer",letterSpacing:".04em"}}>
+                        PARTAGER
+                      </button>
+                    </div>
                   </div>
                 );
               })}
@@ -3348,6 +3356,8 @@ function ProfileTab({appState,updateState,rank,imc,av,onEdit,onLogout,posts,chec
       )}
 
       {/* ── SOLO CHALLENGE MODAL ── */}
+      {sharePR&&<PRShareModal data={sharePR} onClose={()=>setSharePR(null)}/>}
+
       {showClubModal&&(
         <ClubModal
           currentClub={appState?.gymClub}
@@ -3367,6 +3377,258 @@ function ProfileTab({appState,updateState,rank,imc,av,onEdit,onLogout,posts,chec
           onDelete={async()=>{await overrides?.deleteSoloChallenge?.(soloChallenge?.id);setShowSoloModal(false);}}
         />
       )}
+    </div>
+  );
+}
+
+// ══════════════════════ PR SHARE MODAL ══
+function PRShareModal({data, onClose}){
+  const {exercise, weight, reps, pseudo, rankName, rankTier} = data;
+  const canvasRef = useRef(null);
+  const [imgUrl, setImgUrl] = useState(null);
+  const [generating, setGenerating] = useState(true);
+
+  const TIER_COLORS = {
+    bronze:  {main:"#CD7F32",light:"#FFD090",dark:"#7A3D00"},
+    silver:  {main:"#94A3B8",light:"#E0EAF4",dark:"#3D5068"},
+    gold:    {main:"#FBBF24",light:"#FFF0A0",dark:"#8B5E00"},
+    platinum:{main:"#67E8F9",light:"#C8F8FF",dark:"#006880"},
+    diamond: {main:"#A78BFA",light:"#DDD6FF",dark:"#4A20CC"},
+    elite:   {main:"#FF4D4D",light:"#FFBDB0",dark:"#8B0000"},
+  };
+
+  useEffect(()=>{
+    const canvas = canvasRef.current;
+    if(!canvas) return;
+    const W=600, H=900;
+    canvas.width=W; canvas.height=H;
+    const ctx = canvas.getContext("2d");
+
+    // Clear — transparent
+    ctx.clearRect(0,0,W,H);
+
+    const tc = TIER_COLORS[rankTier]||TIER_COLORS.gold;
+    const ac = tc.main;
+
+    // Helper: parse hex to rgb
+    const hx=(h)=>{const r=parseInt(h.slice(1,3),16),g=parseInt(h.slice(3,5),16),b=parseInt(h.slice(5,7),16);return{r,g,b};};
+    const c=hx(ac);
+
+    // Subtle glow behind center
+    const grd=ctx.createRadialGradient(W/2,H/2-60,0,W/2,H/2-60,260);
+    grd.addColorStop(0,`rgba(${c.r},${c.g},${c.b},0.12)`);
+    grd.addColorStop(1,"rgba(0,0,0,0)");
+    ctx.fillStyle=grd; ctx.fillRect(0,0,W,H);
+
+    // ── Exercise ──
+    ctx.font="bold 32px 'Barlow Condensed', Arial";
+    ctx.fillStyle="rgba(200,205,215,0.92)";
+    ctx.textAlign="center";
+    ctx.fillText(exercise.toUpperCase(), W/2, 92);
+
+    // ── Weight + kg on same baseline ──
+    const fontSizeW = 130;
+    const fontSizeKg = 50;
+    ctx.font=`bold ${fontSizeW}px 'Barlow Condensed', Arial`;
+    const wStr = String(weight);
+    const wMetrics = ctx.measureText(wStr);
+    const wWidth = wMetrics.width;
+
+    ctx.font=`bold ${fontSizeKg}px 'Barlow Condensed', Arial`;
+    const kgWidth = ctx.measureText("kg").width;
+
+    const totalWidth = wWidth + 10 + kgWidth;
+    const startX = W/2 - totalWidth/2;
+
+    // Weight baseline Y
+    const baselineY = 260;
+
+    // Shadow
+    ctx.font=`bold ${fontSizeW}px 'Barlow Condensed', Arial`;
+    ctx.fillStyle="rgba(0,0,0,0.3)";
+    ctx.fillText(wStr, startX + wWidth/2 + 3, baselineY + 3);
+    // Weight text
+    ctx.fillStyle="rgba(245,248,255,1)";
+    ctx.fillText(wStr, startX + wWidth/2, baselineY);
+
+    // kg — same baseline
+    ctx.font=`bold ${fontSizeKg}px 'Barlow Condensed', Arial`;
+    ctx.fillStyle=`rgba(${c.r},${c.g},${c.b},0.95)`;
+    ctx.textAlign="left";
+    ctx.fillText("kg", startX + wWidth + 10, baselineY);
+    ctx.textAlign="center";
+
+    // ── Separator ──
+    const sepY = baselineY + 30;
+    const grad=ctx.createLinearGradient(60,sepY,W-60,sepY);
+    grad.addColorStop(0,"rgba(255,255,255,0)");
+    grad.addColorStop(0.5,"rgba(255,255,255,0.35)");
+    grad.addColorStop(1,"rgba(255,255,255,0)");
+    ctx.strokeStyle=grad; ctx.lineWidth=1;
+    ctx.beginPath(); ctx.moveTo(60,sepY); ctx.lineTo(W-60,sepY); ctx.stroke();
+
+    // ── Reps ──
+    ctx.font="bold 38px 'Barlow Condensed', Arial";
+    ctx.fillStyle="rgba(200,205,215,0.88)";
+    ctx.fillText(`${reps} répétition${reps>1?"s":""}`, W/2, sepY+52);
+
+    // ── Hexagon badge ──
+    const bcx=W/2, bcy=sepY+200, bs=88;
+    const lc=hx(tc.light), dk=hx(tc.dark);
+
+    const hexPts=(cx,cy,r)=>{
+      const pts=[];
+      for(let i=0;i<6;i++){const a=i*60*Math.PI/180; pts.push([cx+r*Math.cos(a),cy+r*Math.sin(a)]);}
+      return pts;
+    };
+    const drawHex=(cx,cy,r,color,alpha=1)=>{
+      const pts=hexPts(cx,cy,r);
+      ctx.beginPath();
+      pts.forEach(([x,y],i)=>i?ctx.lineTo(x,y):ctx.moveTo(x,y));
+      ctx.closePath();
+      ctx.fillStyle=color instanceof CanvasGradient?color:`rgba(${color.r||0},${color.g||0},${color.b||0},${alpha})`;
+      ctx.fill();
+    };
+
+    // Glow behind badge
+    const bg2=ctx.createRadialGradient(bcx,bcy,0,bcx,bcy,bs*2);
+    bg2.addColorStop(0,`rgba(${c.r},${c.g},${c.b},0.22)`);
+    bg2.addColorStop(1,"rgba(0,0,0,0)");
+    ctx.fillStyle=bg2; ctx.fillRect(bcx-bs*2,bcy-bs*2,bs*4,bs*4);
+
+    // Shadow
+    ctx.shadowColor="rgba(0,0,0,0.5)"; ctx.shadowBlur=12; ctx.shadowOffsetX=4; ctx.shadowOffsetY=5;
+    drawHex(bcx,bcy,bs*.84,{r:dk.r,g:dk.g,b:dk.b},0.9);
+    ctx.shadowColor="transparent"; ctx.shadowBlur=0; ctx.shadowOffsetX=0; ctx.shadowOffsetY=0;
+
+    // Main fill
+    drawHex(bcx,bcy,bs*.76,{r:c.r,g:c.g,b:c.b},0.96);
+
+    // Highlight (top half lighter)
+    const hg=ctx.createLinearGradient(bcx,bcy-bs,bcx,bcy+bs);
+    hg.addColorStop(0,`rgba(${lc.r},${lc.g},${lc.b},0.35)`);
+    hg.addColorStop(0.5,`rgba(${lc.r},${lc.g},${lc.b},0.08)`);
+    hg.addColorStop(1,"rgba(0,0,0,0)");
+    ctx.fillStyle=hg;
+    const hpts=hexPts(bcx,bcy,bs*.76);
+    ctx.beginPath(); hpts.forEach(([x,y],i)=>i?ctx.lineTo(x,y):ctx.moveTo(x,y)); ctx.closePath(); ctx.fill();
+
+    // Inner rings
+    ctx.strokeStyle=`rgba(${dk.r},${dk.g},${dk.b},0.5)`; ctx.lineWidth=2;
+    const rp=hexPts(bcx,bcy,bs*.60); ctx.beginPath(); rp.forEach(([x,y],i)=>i?ctx.lineTo(x,y):ctx.moveTo(x,y)); ctx.closePath(); ctx.stroke();
+    ctx.strokeStyle=`rgba(${lc.r},${lc.g},${lc.b},0.4)`; ctx.lineWidth=1;
+    const rp2=hexPts(bcx,bcy,bs*.56); ctx.beginPath(); rp2.forEach(([x,y],i)=>i?ctx.lineTo(x,y):ctx.moveTo(x,y)); ctx.closePath(); ctx.stroke();
+
+    // Center gem
+    const gs=bs*.28;
+    const gemPts=[[bcx,bcy-gs*1.4],[bcx+gs*.85,bcy-gs*.2],[bcx+gs*.55,bcy+gs*.9],[bcx,bcy+gs*1.2],[bcx-gs*.55,bcy+gs*.9],[bcx-gs*.85,bcy-gs*.2]];
+    ctx.beginPath(); gemPts.forEach(([x,y],i)=>i?ctx.lineTo(x,y):ctx.moveTo(x,y)); ctx.closePath();
+    ctx.fillStyle=`rgba(${lc.r},${lc.g},${lc.b},0.88)`; ctx.fill();
+    // Gem highlight
+    ctx.beginPath(); ctx.moveTo(bcx-gs*.12,bcy-gs*1.15); ctx.lineTo(bcx+gs*.48,bcy-gs*.12); ctx.lineTo(bcx,bcy+gs*.08); ctx.lineTo(bcx-gs*.42,bcy-gs*.1); ctx.closePath();
+    ctx.fillStyle="rgba(255,255,255,0.7)"; ctx.fill();
+    // Gem shadow
+    ctx.beginPath(); ctx.moveTo(bcx,bcy+gs*.08); ctx.lineTo(bcx+gs*.55,bcy+gs*.78); ctx.lineTo(bcx,bcy+gs*1.2); ctx.lineTo(bcx-gs*.55,bcy+gs*.78); ctx.closePath();
+    ctx.fillStyle=`rgba(${dk.r},${dk.g},${dk.b},0.55)`; ctx.fill();
+    // Gem shine dot
+    ctx.beginPath(); ctx.arc(bcx,bcy-gs*.5,bs*.04,0,Math.PI*2);
+    ctx.fillStyle="rgba(255,255,255,0.9)"; ctx.fill();
+
+    // Sparkles
+    [[0,.92,.025],[90,.82,.016],[180,.92,.02],[270,.82,.014],[45,.94,.018],[135,.88,.013]].forEach(([angle,dist,sz])=>{
+      const sx=bcx+bs*dist*Math.cos(angle*Math.PI/180);
+      const sy=bcy+bs*dist*Math.sin(angle*Math.PI/180);
+      const r3=Math.max(1,bs*sz);
+      ctx.beginPath(); ctx.arc(sx,sy,r3,0,Math.PI*2); ctx.fillStyle="rgba(255,255,255,0.8)"; ctx.fill();
+      ctx.strokeStyle="rgba(255,255,255,0.5)"; ctx.lineWidth=1;
+      ctx.beginPath(); ctx.moveTo(sx-r3*2,sy); ctx.lineTo(sx+r3*2,sy); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(sx,sy-r3*2); ctx.lineTo(sx,sy+r3*2); ctx.stroke();
+    });
+
+    // ── Rank name ──
+    ctx.font=`bold 40px 'Barlow Condensed', Arial`;
+    ctx.fillStyle="rgba(0,0,0,0.4)"; ctx.fillText(rankName.toUpperCase(),W/2+2,bcy+bs+56);
+    ctx.fillStyle=`rgba(${c.r},${c.g},${c.b},1)`; ctx.fillText(rankName.toUpperCase(),W/2,bcy+bs+54);
+
+    // ── Sep 2 ──
+    const sep2Y=bcy+bs+80;
+    const g2=ctx.createLinearGradient(W/2-80,sep2Y,W/2+80,sep2Y);
+    g2.addColorStop(0,"rgba(255,255,255,0)"); g2.addColorStop(0.5,"rgba(255,255,255,0.25)"); g2.addColorStop(1,"rgba(255,255,255,0)");
+    ctx.strokeStyle=g2; ctx.lineWidth=1;
+    ctx.beginPath(); ctx.moveTo(W/2-80,sep2Y); ctx.lineTo(W/2+80,sep2Y); ctx.stroke();
+
+    // ── Pseudo ──
+    ctx.font="30px 'Barlow Condensed', Arial";
+    ctx.fillStyle="rgba(155,160,175,0.85)";
+    ctx.fillText(`@${pseudo}`,W/2,sep2Y+42);
+
+    // ── GYMBRO logo ──
+    const lgY=sep2Y+98;
+    ctx.textAlign="center";
+    ctx.font=`bold 54px 'Barlow Condensed', Arial`;
+    // Measure each part
+    ctx.font=`bold 54px 'Barlow Condensed', Arial`;
+    const gymW=ctx.measureText("GYM").width;
+    const broW=ctx.measureText("BRO").width;
+    const lx=W/2-(gymW+broW)/2;
+    ctx.textAlign="left";
+    ctx.fillStyle="rgb(255,61,61)";
+    ctx.fillText("GYM",lx,lgY);
+    ctx.fillStyle="rgba(245,248,255,0.95)";
+    ctx.fillText("BRO",lx+gymW,lgY);
+    ctx.textAlign="center";
+
+    // Export
+    const url=canvas.toDataURL("image/png");
+    setImgUrl(url);
+    setGenerating(false);
+  },[]);
+
+  const download=()=>{
+    if(!imgUrl)return;
+    const a=document.createElement("a");
+    a.href=imgUrl;
+    a.download=`gymbro_pr_${exercise.replace(/\s/g,"_").toLowerCase()}_${weight}kg.png`;
+    a.click();
+  };
+
+  const share=async()=>{
+    if(!imgUrl)return;
+    try{
+      const res=await fetch(imgUrl);
+      const blob=await res.blob();
+      const file=new File([blob],"gymbro_pr.png",{type:"image/png"});
+      if(navigator.share&&navigator.canShare({files:[file]})){
+        await navigator.share({files:[file],title:`Mon PR GymBro — ${exercise} ${weight}kg !`});
+      } else download();
+    }catch{ download(); }
+  };
+
+  return(
+    <div className="modal-bg" onTouchMove={e=>e.stopPropagation()} onWheel={e=>e.stopPropagation()} onClick={onClose}>
+      <div className="modal-sheet" onClick={e=>e.stopPropagation()} style={{display:"flex",flexDirection:"column",maxHeight:"88vh"}}>
+        <div className="modal-handle" style={{flexShrink:0}}/>
+        <div className="sa" style={{flex:1,minHeight:0,padding:"0 16px 8px"}}>
+          <div style={{fontSize:18,fontWeight:900,marginBottom:12,textAlign:"center"}}>🏆 Partager mon PR</div>
+          {/* Hidden canvas for generation */}
+          <canvas ref={canvasRef} style={{display:"none"}}/>
+          {/* Preview */}
+          <div style={{display:"flex",justifyContent:"center",marginBottom:14}}>
+            {generating
+              ?<div style={{width:240,height:360,background:"#0D0D14",borderRadius:16,display:"flex",alignItems:"center",justifyContent:"center",color:"#444",fontSize:13}}>Génération...</div>
+              :<img src={imgUrl} alt="PR card" style={{width:240,borderRadius:16,boxShadow:"0 8px 32px rgba(0,0,0,0.6)",background:"#1A1A24"}}/>
+            }
+          </div>
+        </div>
+        <div style={{padding:"12px 16px",paddingBottom:"max(16px,env(safe-area-inset-bottom,16px))",borderTop:"1px solid #1A1A24",flexShrink:0,display:"flex",gap:8}}>
+          <button onClick={download} style={{flex:1,padding:"13px",background:"#1A1A24",border:"1px solid #2A2A3A",color:"#CCC",borderRadius:11,fontFamily:"'Barlow Condensed',sans-serif",fontSize:14,fontWeight:800,cursor:"pointer"}}>
+            ⬇️ Télécharger
+          </button>
+          <button onClick={share} style={{flex:1,padding:"13px",background:"linear-gradient(135deg,#FF3D3D,#CC2020)",border:"none",color:"#FFF",borderRadius:11,fontFamily:"'Barlow Condensed',sans-serif",fontSize:14,fontWeight:900,cursor:"pointer",letterSpacing:".04em"}}>
+            📤 Partager
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
