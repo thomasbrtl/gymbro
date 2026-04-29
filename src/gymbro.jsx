@@ -1337,6 +1337,9 @@ function MessagesTab({conversations,user,av,updateState,appState,overrides,onOpe
     }
   },[pendingConvTarget]);
 
+  // Also works when directTarget is set from within the same tab (amis button)
+  // directTarget is already reactive — conv computed from it triggers chat render
+
   // conv: prioritize existing conv from array, then directTarget
   const convFromList = openConv
     ? (conversations||[]).find(cv=>cv.id===openConv||cv.withId===openConv)
@@ -1518,6 +1521,7 @@ function MessagesTab({conversations,user,av,updateState,appState,overrides,onOpe
               const avatarVal=friend.avatarUrl||"";
               const avatarFb=friend.pseudo?.[0]?.toUpperCase()||"👤";
               const profileObj={userId:uid,pseudo,avatarVal,avatarFallback:avatarFb,rankName:"",rankColor:"#888",rankTier:"silver",points:friend.points||0};
+              const existingConv=(conversations||[]).find(cv=>cv.withId===uid||cv.id===uid);
               return(
                 <div key={uid} style={{display:"flex",alignItems:"center",gap:12,padding:"12px 0",borderBottom:"1px solid #1A1A24"}}>
                   <div onClick={()=>onOpenProfile&&onOpenProfile(profileObj)} style={{cursor:"pointer",flexShrink:0}}>
@@ -1529,16 +1533,12 @@ function MessagesTab({conversations,user,av,updateState,appState,overrides,onOpe
                   </div>
                   <div style={{display:"flex",gap:7,flexShrink:0}}>
                     <button onClick={()=>{
+                      const target = existingConv
+                        ? {id:existingConv.withId||existingConv.id,pseudo:existingConv.withPseudo,avatarVal:existingConv.avatarVal||"",avatarFallback:existingConv.avatarFallback||"👤"}
+                        : {id:uid,pseudo,avatarVal,avatarFallback:avatarFb};
+                      setOpenConv(null);
+                      setDirectTarget(target);
                       setMsgSubTab("messages");
-                      if(c){
-                        // Conv existe — ouvrir directement
-                        setDirectTarget({id:c.withId||c.id,pseudo:c.withPseudo,avatarVal:c.avatarVal||"",avatarFallback:c.avatarFallback||"👤"});
-                        setOpenConv(null);
-                      } else {
-                        // Nouvelle conv — créer via directTarget
-                        setDirectTarget({id:uid,pseudo,avatarVal,avatarFallback:avatarFb});
-                        setOpenConv(null);
-                      }
                     }} style={{background:"#13131A",border:"1px solid #1E1E2E",color:"#888",borderRadius:9,padding:"8px 10px",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>
                       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
                     </button>
