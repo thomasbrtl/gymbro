@@ -492,7 +492,7 @@ function SupabaseBridge({ callbacks, externalAppState, isAuthenticated, external
         if (res.prCount > 0) giveXP(res.prCount * 150, res.prCount + " nouveau" + (res.prCount > 1 ? "x" : "") + " PR !", "💪");
       }
       // Always notify session done even if no XP (not new day)
-      if (!res?.isNewDay && res !== undefined) {
+      if (res !== undefined && !res?.isNewDay) {
         addNotif("🏋️", "Séance enregistrée — continue comme ça !");
       }
     };
@@ -637,7 +637,7 @@ function AppMain({appState,updateState,onLogout,overrides={}}){
   useEffect(()=>{
     const prev=prevChallengesRef.current;
     const newPending=challenges.filter(ch=>ch.status==="pending"&&ch.opponentPseudo===user.pseudo&&!prev.some(p=>p.id===ch.id));
-    newPending.forEach(ch=>addNotif("⚡",`@${ch.challengerPseudo} te lance un défi : ${ch.title}`));
+    newPending.forEach(ch=>addNotif("⚡",`@${ch.challengerPseudo} te lance un défi "${ch.title}" — va dans Social → Amis pour répondre !`));
     prevChallengesRef.current=challenges;
   },[challenges]);
   const rank=getRank(stats.points);
@@ -729,10 +729,13 @@ function AppMain({appState,updateState,onLogout,overrides={}}){
 
   const addComment = overrides.addComment || _addComment;
   const toggleFollow=(uid)=>{
-    // Optimistic local update
-    updateState(s=>({following:s.following.some(f=>f.id===uid)?s.following.filter(f=>f.id!==uid):[...s.following,{id:uid,pseudo:'',avatarUrl:'',points:0}]}));
-    // Supabase sync
-    if(overrides.toggleFollow) overrides.toggleFollow(uid);
+    if(overrides.toggleFollow){
+      // Supabase mode — App.jsx handles optimistic + sync
+      overrides.toggleFollow(uid);
+    } else {
+      // Local mode
+      updateState(s=>({following:s.following.some(f=>f.id===uid)?s.following.filter(f=>f.id!==uid):[...s.following,{id:uid,pseudo:'',avatarUrl:'',points:0}]}));
+    }
   };
 
   const _sendMessage=(toId,toPseudo,toAvatarVal,toAvatarFb,text)=>{
@@ -851,7 +854,7 @@ function AppMain({appState,updateState,onLogout,overrides={}}){
       <div style={{position:"fixed",bottom:0,left:"50%",transform:"translateX(-50%)",width:"100%",maxWidth:430,background:"#0A0A0F",borderTop:"1px solid #1A1A24",display:"flex",padding:`0 0 calc(env(safe-area-inset-bottom,0px) + 4px)`,zIndex:100}}>
         {[
           {id:"feed",    label:"Feed",     icon:(a)=><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={a?"#FF3D3D":"#555"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>},
-          {id:"messages",label:"Messages", icon:(a)=><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={a?"#FF3D3D":"#555"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>},
+          {id:"messages",label:"Social", icon:(a)=><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={a?"#FF3D3D":"#555"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>},
           {id:"program", label:"Séance",   icon:(a)=><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={a?"#FF3D3D":"#555"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>},
           {id:"trophies",label:"Trophées", icon:(a)=><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={a?"#FF3D3D":"#555"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="8 17 12 21 16 17"/><line x1="12" y1="12" x2="12" y2="21"/><path d="M20.88 18.09A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.29"/></svg>},
           {id:"ranked",  label:"Ranked",   icon:(a)=><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={a?"#FF3D3D":"#555"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg>},
@@ -918,8 +921,8 @@ function AppMain({appState,updateState,onLogout,overrides={}}){
                 });
                 setViewProfile(null);
                 setTab("messages");
-                // Signal MessagesTab to open this conv
-                setTimeout(()=>window.dispatchEvent(new CustomEvent("gymbro_open_conv",{detail:{convId:id}})),100);
+                // Signal MessagesTab to open this conv — use longer delay to ensure mount
+                setTimeout(()=>window.dispatchEvent(new CustomEvent("gymbro_open_conv",{detail:{convId:id}})),300);
               }}
               myPseudo={user.pseudo} av={av} userAvatar={user.avatar}
               myStats={stats} myUser={user} appState={appState}
@@ -1246,47 +1249,60 @@ function FullUserProfile({post,posts,following,toggleFollow,onClose,onMessage,my
               </div>
             ))}
           </div>)}
-        {profTab==="stats"&&<div style={{paddingBottom:20}}>
-          {[
-            {l:"Séances",v:displayStats.sessions,max:100,c:"#FF3D3D"},
-            {l:"Streak",v:displayStats.streak,max:30,u:"j",c:"#22C55E"},
-            {l:"XP total",v:displayStats.points,max:260000,c:rank.color}
-          ].map((s,i)=>(
-            <div key={i} style={{marginBottom:12}}>
-              <div style={{display:"flex",justifyContent:"space-between",fontSize:13,marginBottom:5}}>
-                <span style={{fontWeight:600,color:"#E0E0E0"}}>{s.l}</span>
-                <span style={{color:s.c,fontWeight:800}}>{s.v.toLocaleString()}{s.u?" "+s.u:""}</span>
-              </div>
-              <div style={{height:5,background:"#1A1A24",borderRadius:3,overflow:"hidden"}}>
-                <div style={{height:"100%",width:`${Math.min((s.v/s.max)*100,100)}%`,background:s.c,borderRadius:3}}/>
-              </div>
-            </div>
-          ))}
-        </div>}
+        {profTab==="stats"&&(
+          <div style={{padding:"4px 0"}}>
+            {(()=>{
+              const sourceExercises=isMe&&appState?appState.exercises:otherExercises;
+              const entries=Object.entries(sourceExercises||{});
+              if(entries.length===0)return <div style={{textAlign:"center",padding:"32px 0",color:"#444"}}><div style={{fontSize:32,marginBottom:8}}>💪</div><div style={{fontSize:13}}>Aucun exercice enregistré</div></div>;
+              return entries.map(([exName,history])=>{
+                const allSets=Array.isArray(history)&&history.length>0
+                  ?(history[0]?.sets?history.flatMap(h=>h.sets||[]):history)
+                  :[];
+                const prVal=allSets.map(s=>Number(s.weight)||0).reduce((a,b)=>Math.max(a,b),0);
+                if(!prVal)return null;
+                return(
+                  <div key={exName} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 0",borderBottom:"1px solid #1A1A24"}}>
+                    <span style={{fontSize:13,fontWeight:600,color:"#DDD"}}>{exName}</span>
+                    <span style={{fontWeight:900,fontSize:15,color:"#FBBF24"}}>{prVal}<span style={{fontSize:10,color:"#555",marginLeft:3}}>kg PR</span></span>
+                  </div>
+                );
+              });
+            })()}
+          </div>)}
         {profTab==="PRs"&&<div style={{paddingBottom:20}}>
           <div style={{background:"linear-gradient(135deg,#FBBF2422,#0D0D14)",border:"1px solid #FBBF2433",borderRadius:11,padding:"11px 14px",marginBottom:12,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
             <div style={{fontSize:13,color:"#E0E0E0",fontWeight:700}}>PRs validés</div>
             <div style={{fontSize:22,fontWeight:900,color:"#FBBF24"}}>{displayStats.prs}</div>
           </div>
-          {PR_EXERCISES.map(exName=>{
-            const exHistory=isMe&&appState?appState.exercises[exName]:null;
-            const prVal=exHistory?exHistory.flatMap(h=>h.sets.map(s=>Number(s.weight)||0)).reduce((a,b)=>Math.max(a,b),0):null;
-            if(!prVal&&!isMe)return null;
-            return(
-              <div key={exName} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"9px 0",borderBottom:"1px solid #1A1A24"}}>
-                <span style={{fontSize:13,fontWeight:600,color:"#E0E0E0"}}>{exName}</span>
-                {prVal>0
-                  ?<span style={{fontWeight:800,fontSize:14,color:"#FBBF24"}}>{prVal} kg 🏆</span>
-                  :<span style={{fontSize:11,color:"#444"}}>—</span>}
-              </div>
-            );
-          })}
+          {(()=>{
+            // For own profile: use local exercises. For others: use fetched exercises
+            const sourceExercises=isMe&&appState?appState.exercises:otherExercises;
+            const entries=Object.entries(sourceExercises||{});
+            if(entries.length===0)return <div style={{textAlign:"center",padding:"32px 0",color:"#444"}}><div style={{fontSize:32,marginBottom:8}}>💪</div><div style={{fontSize:13}}>Aucun exercice enregistré</div></div>;
+            return entries.map(([exName,history])=>{
+              // history can be array of session objects with .sets, or direct sets
+              const allSets=Array.isArray(history)&&history.length>0
+                ?(history[0]?.sets?history.flatMap(h=>h.sets||[]):history)
+                :[];
+              const prVal=allSets.map(s=>Number(s.weight)||0).reduce((a,b)=>Math.max(a,b),0);
+              if(!prVal)return null;
+              return(
+                <div key={exName} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 0",borderBottom:"1px solid #1A1A24"}}>
+                  <span style={{fontSize:13,fontWeight:600,color:"#E0E0E0"}}>{exName}</span>
+                  <span style={{fontWeight:900,fontSize:15,color:"#FBBF24"}}>{prVal} kg 🏆</span>
+                </div>
+              );
+            });
+          })()}
         </div>}
 
       </div>
     </div>
   );
 }
+
+
 
 
 
@@ -1498,12 +1514,13 @@ function MessagesTab({conversations,user,av,updateState,appState,overrides,onOpe
                   </div>
                   <div style={{display:"flex",gap:7,flexShrink:0}}>
                     <button onClick={()=>{
+                      // Switch to messages sub-tab
+                      setMsgSubTab("messages");
                       if(c){ setOpenConv(c.id); }
                       else {
-                        // No existing conv — create one locally and open it
                         const newConv={id:uid,withId:uid,withPseudo:pseudo,avatarVal,avatarFallback:avatarFb,messages:[]};
                         updateState(s=>({conversations:[...(s.conversations||[]),newConv]}));
-                        setOpenConv(uid);
+                        setTimeout(()=>setOpenConv(uid),50);
                       }
                     }} style={{background:"#13131A",border:"1px solid #1E1E2E",color:"#888",borderRadius:9,padding:"8px 10px",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>
                       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>

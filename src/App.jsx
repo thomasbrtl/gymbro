@@ -652,7 +652,22 @@ export default function App() {
           const scoreField = isChallenger ? 'challenger_score' : 'opponent_score'
           let newScore = isChallenger ? (ch.challenger_score || 0) : (ch.opponent_score || 0)
           if (ch.type === 'sessions') {
+            // 1 session par jour max pour les défis
+            const todayStr = new Date().toDateString()
+            const lastScoreDate = ch.last_session_date || ''
+            if (lastScoreDate === todayStr) continue // Already scored today
             newScore += 1
+            const isExpired2 = ch.end_date && new Date(ch.end_date) < new Date()
+            if (isExpired2) {
+              const cs2 = isChallenger ? newScore : (ch.challenger_score||0)
+              const os2 = isChallenger ? (ch.opponent_score||0) : newScore
+              const winner2 = cs2 > os2 ? ch.challenger_id : cs2 < os2 ? ch.opponent_id : null
+              await supabase.from('challenges').update({ [scoreField]: newScore, status: 'finished', winner_id: winner2, last_session_date: todayStr }).eq('id', ch.id)
+            } else {
+              await supabase.from('challenges').update({ [scoreField]: newScore, last_session_date: todayStr }).eq('id', ch.id)
+            }
+            loadChallenges()
+            continue
           } else if (ch.type === 'volume') {
             const vol = result.reduce((sum, ex) => sum + ex.sets.reduce((s2, set) => s2 + ((set.reps||0) * (set.weight||0)), 0), 0)
             newScore += Math.round(vol)
