@@ -370,6 +370,44 @@ export default function App() {
     return data
   }
 
+  // ── Account management ──
+  async function changePassword(currentPassword, newPassword) {
+    if (!supaSession?.user?.email) throw new Error('Non connecté')
+    // Re-authenticate first
+    const { error: reAuthError } = await supabase.auth.signInWithPassword({
+      email: supaSession.user.email,
+      password: currentPassword,
+    })
+    if (reAuthError) throw new Error('Mot de passe actuel incorrect')
+    const { error } = await supabase.auth.updateUser({ password: newPassword })
+    if (error) throw new Error(error.message)
+  }
+
+  async function changeEmail(newEmail, currentPassword) {
+    if (!supaSession?.user?.email) throw new Error('Non connecté')
+    // Re-authenticate first
+    const { error: reAuthError } = await supabase.auth.signInWithPassword({
+      email: supaSession.user.email,
+      password: currentPassword,
+    })
+    if (reAuthError) throw new Error('Mot de passe incorrect')
+    const { error } = await supabase.auth.updateUser({ email: newEmail })
+    if (error) throw new Error(error.message)
+  }
+
+  async function deleteAccount() {
+    if (!supaSession) throw new Error('Non connecté')
+    const { data: { session } } = await supabase.auth.getSession()
+    const res = await supabase.functions.invoke('delete-account', {
+      headers: { Authorization: `Bearer ${session.access_token}` }
+    })
+    if (res.error) throw new Error(res.error.message || 'Erreur suppression')
+    await supabase.auth.signOut()
+    setProfile(null)
+    setFollows([])
+    setPosts([])
+  }
+
   async function signOut() { await supabase.auth.signOut() }
 
   // ══════════════════════ SOCIAL ══
@@ -845,6 +883,7 @@ export default function App() {
         createChallenge, respondChallenge, deleteChallenge,
         createSoloChallenge, deleteSoloChallenge,
         joinClub, leaveClub, createAndJoinClub,
+        changePassword, changeEmail, deleteAccount,
       }}
       externalAppState={null}
       isAuthenticated={false}
@@ -893,6 +932,7 @@ export default function App() {
       createChallenge, respondChallenge, deleteChallenge,
       createSoloChallenge, deleteSoloChallenge,
       joinClub, leaveClub, createAndJoinClub,
+      changePassword, changeEmail, deleteAccount,
     }}
     externalAppState={appState}
     isAuthenticated={true}

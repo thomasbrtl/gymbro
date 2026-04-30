@@ -461,7 +461,8 @@ function SupabaseBridge({ callbacks, externalAppState, isAuthenticated, external
             updatePrograms, updatePinnedTrophies, updateTrophyDate, updateCountry,
             createChallenge, respondChallenge, deleteChallenge,
             createSoloChallenge, deleteSoloChallenge,
-            joinClub, leaveClub, createAndJoinClub } = callbacks;
+            joinClub, leaveClub, createAndJoinClub,
+            changePassword, changeEmail, deleteAccount } = callbacks;
 
     // externalAppState already contains fresh localData (programs/exercises/sessionHistory)
     // because App.jsx builds appState from its own localData state.
@@ -520,6 +521,9 @@ function SupabaseBridge({ callbacks, externalAppState, isAuthenticated, external
           joinClub,
           leaveClub,
           createAndJoinClub,
+          changePassword,
+          changeEmail,
+          deleteAccount,
           deletePost: async (postId)=>{
             try{
               const {supabase:sb}=await import('./supabase.js');
@@ -3046,6 +3050,7 @@ function ProfileTab({appState,updateState,rank,imc,av,onEdit,onLogout,posts,chec
   const [showReferralModal,setShowReferralModal]=useState(false);
   const [sharePR,setSharePR]=useState(null);
   const [showCGU,setShowCGU]=useState(false);
+  const [showAccountSettings,setShowAccountSettings]=useState(false);
   const unlocked=TROPHIES.filter(t=>t.condition(stats));
   const pinned=(user.pinnedTrophies||[]).map(id=>TROPHIES.find(t=>t.id===id)).filter(Boolean);
   const myPosts=posts.filter(p=>p.userId==="me");
@@ -3061,6 +3066,7 @@ function ProfileTab({appState,updateState,rank,imc,av,onEdit,onLogout,posts,chec
         </div>
         <div style={{display:"flex",gap:6,marginTop:2}}>
           <button onClick={onEdit} className="btn-g" style={{padding:"7px 11px",fontSize:11}}>✏️ Modifier</button>
+          <button onClick={()=>setShowAccountSettings(true)} style={{background:"#0D0D14",border:"1px solid #2A2A3A",color:"#888",padding:"7px 10px",borderRadius:9,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>⚙️</button>
           <button onClick={()=>setShowCGU(true)} style={{background:"#0D0D14",border:"1px solid #2A2A3A",color:"#666",padding:"7px 10px",borderRadius:9,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>CGU</button>
           <button onClick={onLogout} style={{background:"#1A0A0A",border:"1px solid #FF3D3D33",color:"#FF6060",padding:"7px 10px",borderRadius:9,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>Déco.</button>
         </div>
@@ -3360,6 +3366,7 @@ function ProfileTab({appState,updateState,rank,imc,av,onEdit,onLogout,posts,chec
       {/* ── SOLO CHALLENGE MODAL ── */}
       {sharePR&&<PRShareModal data={sharePR} onClose={()=>setSharePR(null)}/>}
       {showCGU&&<CGUModal onClose={()=>setShowCGU(false)}/>}
+      {showAccountSettings&&<AccountSettingsModal overrides={overrides} onClose={()=>setShowAccountSettings(false)} onLogout={onLogout}/>}
 
       {showClubModal&&(
         <ClubModal
@@ -3380,6 +3387,175 @@ function ProfileTab({appState,updateState,rank,imc,av,onEdit,onLogout,posts,chec
           onDelete={async()=>{await overrides?.deleteSoloChallenge?.(soloChallenge?.id);setShowSoloModal(false);}}
         />
       )}
+    </div>
+  );
+}
+
+// ══════════════════════ ACCOUNT SETTINGS ══
+function AccountSettingsModal({overrides, onClose, onLogout}){
+  const [view,setView]=useState("main"); // main | password | email | delete
+  const [loading,setLoading]=useState(false);
+  const [err,setErr]=useState("");
+  const [success,setSuccess]=useState("");
+
+  // Password change
+  const [curPw,setCurPw]=useState("");
+  const [newPw,setNewPw]=useState("");
+  const [confirmPw,setConfirmPw]=useState("");
+
+  // Email change
+  const [newEmail,setNewEmail]=useState("");
+  const [emailPw,setEmailPw]=useState("");
+
+  // Delete confirm
+  const [deleteConfirm,setDeleteConfirm]=useState("");
+
+  const reset=()=>{setErr("");setSuccess("");setCurPw("");setNewPw("");setConfirmPw("");setNewEmail("");setEmailPw("");setDeleteConfirm("");};
+
+  const handleChangePassword=async()=>{
+    setErr("");setSuccess("");
+    if(!curPw||!newPw||!confirmPw){setErr("Remplis tous les champs");return;}
+    if(newPw.length<6){setErr("Nouveau mot de passe trop court (6 chars min)");return;}
+    if(newPw!==confirmPw){setErr("Les mots de passe ne correspondent pas");return;}
+    setLoading(true);
+    try{
+      await overrides.changePassword(curPw,newPw);
+      setSuccess("✅ Mot de passe modifié avec succès !");
+      reset();
+    }catch(e){setErr(e.message);}
+    setLoading(false);
+  };
+
+  const handleChangeEmail=async()=>{
+    setErr("");setSuccess("");
+    if(!newEmail.match(/^[^\s@]+@[^\s@]+\.[^\s@]+$/)){setErr("Email invalide");return;}
+    if(!emailPw){setErr("Entre ton mot de passe pour confirmer");return;}
+    setLoading(true);
+    try{
+      await overrides.changeEmail(newEmail,emailPw);
+      setSuccess("✅ Email de confirmation envoyé sur ta nouvelle adresse !");
+      reset();
+    }catch(e){setErr(e.message);}
+    setLoading(false);
+  };
+
+  const handleDelete=async()=>{
+    if(deleteConfirm!=="SUPPRIMER"){setErr("Tape SUPPRIMER en majuscules pour confirmer");return;}
+    setLoading(true);
+    try{
+      await overrides.deleteAccount();
+      onLogout();
+      onClose();
+    }catch(e){setErr(e.message);}
+    setLoading(false);
+  };
+
+  const inputStyle={width:"100%",background:"#0D0D14",border:"1px solid #2A2A3A",borderRadius:10,padding:"12px 14px",color:"#F0F0F0",fontSize:15,fontFamily:"'Barlow',sans-serif",outline:"none",boxSizing:"border-box",marginBottom:10};
+
+  return(
+    <div style={{position:"fixed",inset:0,background:"#0A0A0F",zIndex:600,display:"flex",flexDirection:"column"}}>
+      {/* Header */}
+      <div style={{display:"flex",alignItems:"center",gap:12,padding:"env(safe-area-inset-top,0px) 16px 0",paddingTop:"calc(env(safe-area-inset-top,0px) + 14px)",paddingBottom:14,borderBottom:"1px solid #1A1A24",flexShrink:0}}>
+        <button onClick={view==="main"?onClose:()=>{setView("main");reset();}} style={{background:"none",border:"none",color:"#888",cursor:"pointer",display:"flex",padding:4}}>
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+        </button>
+        <div style={{fontSize:18,fontWeight:900}}>
+          {view==="main"&&"Paramètres du compte"}
+          {view==="password"&&"Changer le mot de passe"}
+          {view==="email"&&"Changer l'email"}
+          {view==="delete"&&"Supprimer le compte"}
+        </div>
+      </div>
+
+      <div className="sa" style={{flex:1,overflowY:"auto",padding:"20px 16px"}}>
+
+        {/* ── MAIN ── */}
+        {view==="main"&&(
+          <div style={{display:"flex",flexDirection:"column",gap:8}}>
+            {/* Password */}
+            <button onClick={()=>{setView("password");reset();}} style={{display:"flex",alignItems:"center",gap:14,padding:"16px",background:"#0D0D14",border:"1px solid #1A1A24",borderRadius:12,cursor:"pointer",textAlign:"left",width:"100%"}}>
+              <div style={{width:40,height:40,borderRadius:10,background:"#1A1A2A",display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,flexShrink:0}}>🔑</div>
+              <div style={{flex:1}}>
+                <div style={{fontWeight:800,fontSize:14,color:"#F0F0F0"}}>Changer le mot de passe</div>
+                <div style={{fontSize:11,color:"#555",fontFamily:"'Barlow',sans-serif",marginTop:2}}>Modifier ton mot de passe actuel</div>
+              </div>
+              <span style={{color:"#333",fontSize:18}}>›</span>
+            </button>
+
+            {/* Email */}
+            <button onClick={()=>{setView("email");reset();}} style={{display:"flex",alignItems:"center",gap:14,padding:"16px",background:"#0D0D14",border:"1px solid #1A1A24",borderRadius:12,cursor:"pointer",textAlign:"left",width:"100%"}}>
+              <div style={{width:40,height:40,borderRadius:10,background:"#1A1A2A",display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,flexShrink:0}}>📧</div>
+              <div style={{flex:1}}>
+                <div style={{fontWeight:800,fontSize:14,color:"#F0F0F0"}}>Changer l'email</div>
+                <div style={{fontSize:11,color:"#555",fontFamily:"'Barlow',sans-serif",marginTop:2}}>Modifier ton adresse email</div>
+              </div>
+              <span style={{color:"#333",fontSize:18}}>›</span>
+            </button>
+
+            {/* Delete */}
+            <button onClick={()=>{setView("delete");reset();}} style={{display:"flex",alignItems:"center",gap:14,padding:"16px",background:"#1A0505",border:"1px solid #FF3D3D22",borderRadius:12,cursor:"pointer",textAlign:"left",width:"100%",marginTop:12}}>
+              <div style={{width:40,height:40,borderRadius:10,background:"#2A0808",display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,flexShrink:0}}>🗑️</div>
+              <div style={{flex:1}}>
+                <div style={{fontWeight:800,fontSize:14,color:"#FF6060"}}>Supprimer mon compte</div>
+                <div style={{fontSize:11,color:"#664444",fontFamily:"'Barlow',sans-serif",marginTop:2}}>Action irréversible — toutes les données seront perdues</div>
+              </div>
+              <span style={{color:"#FF3D3D44",fontSize:18}}>›</span>
+            </button>
+          </div>
+        )}
+
+        {/* ── CHANGE PASSWORD ── */}
+        {view==="password"&&(
+          <div>
+            <div style={{fontSize:13,color:"#555",fontFamily:"'Barlow',sans-serif",marginBottom:20,lineHeight:1.5}}>Ton mot de passe doit faire au moins 6 caractères.</div>
+            <div style={{fontSize:11,fontWeight:700,color:"#555",textTransform:"uppercase",letterSpacing:".08em",marginBottom:6}}>Mot de passe actuel</div>
+            <input type="password" placeholder="••••••••" value={curPw} onChange={e=>setCurPw(e.target.value)} style={inputStyle}/>
+            <div style={{fontSize:11,fontWeight:700,color:"#555",textTransform:"uppercase",letterSpacing:".08em",marginBottom:6,marginTop:4}}>Nouveau mot de passe</div>
+            <input type="password" placeholder="••••••••" value={newPw} onChange={e=>setNewPw(e.target.value)} style={inputStyle}/>
+            <div style={{fontSize:11,fontWeight:700,color:"#555",textTransform:"uppercase",letterSpacing:".08em",marginBottom:6,marginTop:4}}>Confirmer</div>
+            <input type="password" placeholder="••••••••" value={confirmPw} onChange={e=>setConfirmPw(e.target.value)} style={inputStyle}/>
+            {err&&<div style={{color:"#FF6060",fontSize:13,marginBottom:12,fontFamily:"'Barlow',sans-serif"}}>⚠️ {err}</div>}
+            {success&&<div style={{color:"#22C55E",fontSize:13,marginBottom:12,fontFamily:"'Barlow',sans-serif"}}>{success}</div>}
+            <button onClick={handleChangePassword} disabled={loading} style={{width:"100%",padding:"14px",background:loading?"#1A1A24":"linear-gradient(135deg,#FF3D3D,#CC2020)",border:"none",color:loading?"#444":"#FFF",borderRadius:12,fontFamily:"'Barlow Condensed',sans-serif",fontSize:16,fontWeight:900,cursor:loading?"not-allowed":"pointer",letterSpacing:".06em",marginTop:4}}>
+              {loading?"Modification...":"CHANGER LE MOT DE PASSE"}
+            </button>
+          </div>
+        )}
+
+        {/* ── CHANGE EMAIL ── */}
+        {view==="email"&&(
+          <div>
+            <div style={{fontSize:13,color:"#555",fontFamily:"'Barlow',sans-serif",marginBottom:20,lineHeight:1.5}}>Un email de confirmation sera envoyé sur ta nouvelle adresse. Tu devras cliquer le lien pour valider le changement.</div>
+            <div style={{fontSize:11,fontWeight:700,color:"#555",textTransform:"uppercase",letterSpacing:".08em",marginBottom:6}}>Nouvel email</div>
+            <input type="email" placeholder="nouveau@email.com" value={newEmail} onChange={e=>setNewEmail(e.target.value)} style={inputStyle}/>
+            <div style={{fontSize:11,fontWeight:700,color:"#555",textTransform:"uppercase",letterSpacing:".08em",marginBottom:6,marginTop:4}}>Mot de passe (pour confirmer)</div>
+            <input type="password" placeholder="••••••••" value={emailPw} onChange={e=>setEmailPw(e.target.value)} style={inputStyle}/>
+            {err&&<div style={{color:"#FF6060",fontSize:13,marginBottom:12,fontFamily:"'Barlow',sans-serif"}}>⚠️ {err}</div>}
+            {success&&<div style={{color:"#22C55E",fontSize:13,marginBottom:12,fontFamily:"'Barlow',sans-serif"}}>{success}</div>}
+            <button onClick={handleChangeEmail} disabled={loading} style={{width:"100%",padding:"14px",background:loading?"#1A1A24":"linear-gradient(135deg,#FF3D3D,#CC2020)",border:"none",color:loading?"#444":"#FFF",borderRadius:12,fontFamily:"'Barlow Condensed',sans-serif",fontSize:16,fontWeight:900,cursor:loading?"not-allowed":"pointer",letterSpacing:".06em",marginTop:4}}>
+              {loading?"Envoi...":"CHANGER L'EMAIL"}
+            </button>
+          </div>
+        )}
+
+        {/* ── DELETE ACCOUNT ── */}
+        {view==="delete"&&(
+          <div>
+            <div style={{background:"#1A0505",border:"1px solid #FF3D3D44",borderRadius:12,padding:"14px 16px",marginBottom:20}}>
+              <div style={{fontSize:14,fontWeight:800,color:"#FF6060",marginBottom:6}}>⚠️ Action irréversible</div>
+              <div style={{fontSize:13,color:"#AA6060",fontFamily:"'Barlow',sans-serif",lineHeight:1.6}}>
+                La suppression de ton compte effacera définitivement :\n• Ton profil et toutes tes données\n• Ton historique de séances et PRs\n• Tes posts, messages et défis\n• Ton rang et tous tes XP\n\nCette action est impossible à annuler.
+              </div>
+            </div>
+            <div style={{fontSize:13,color:"#888",fontFamily:"'Barlow',sans-serif",marginBottom:10}}>Tape <strong style={{color:"#FF6060"}}>SUPPRIMER</strong> pour confirmer :</div>
+            <input type="text" placeholder="SUPPRIMER" value={deleteConfirm} onChange={e=>setDeleteConfirm(e.target.value)} style={{...inputStyle,borderColor:deleteConfirm==="SUPPRIMER"?"#FF3D3D44":"#2A2A3A",color:deleteConfirm==="SUPPRIMER"?"#FF6060":"#F0F0F0"}}/>
+            {err&&<div style={{color:"#FF6060",fontSize:13,marginBottom:12,fontFamily:"'Barlow',sans-serif"}}>⚠️ {err}</div>}
+            <button onClick={handleDelete} disabled={loading||deleteConfirm!=="SUPPRIMER"} style={{width:"100%",padding:"14px",background:deleteConfirm==="SUPPRIMER"&&!loading?"#CC0000":"#1A0505",border:`1px solid ${deleteConfirm==="SUPPRIMER"?"#FF3D3D":"#441111"}`,color:deleteConfirm==="SUPPRIMER"&&!loading?"#FFF":"#664444",borderRadius:12,fontFamily:"'Barlow Condensed',sans-serif",fontSize:16,fontWeight:900,cursor:deleteConfirm==="SUPPRIMER"&&!loading?"pointer":"not-allowed",letterSpacing:".06em",transition:"all .2s"}}>
+              {loading?"Suppression en cours...":"🗑️ SUPPRIMER MON COMPTE"}
+            </button>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
