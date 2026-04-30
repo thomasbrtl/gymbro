@@ -3083,6 +3083,12 @@ function ProfileTab({appState,updateState,rank,imc,av,onEdit,onLogout,posts,chec
           <RankBadge tier={rank.tier} size={26} showLabel label={rank.name}/>
           <span style={{fontSize:14,fontWeight:800,color:rank.color}}>{stats.points.toLocaleString()} XP</span>
           {appState?.isPremium&&<span style={{background:"linear-gradient(135deg,#FBBF24,#F59E0B)",borderRadius:6,padding:"2px 7px",fontSize:11,fontWeight:900,color:"#000",letterSpacing:".04em"}}>🏋️ PREMIUM</span>}
+          {!appState?.isPremium&&(
+            <a href="https://buy.stripe.com/00w8wP4Jve3i5Fb2OX6Ri00" target="_blank" rel="noopener"
+              style={{background:"linear-gradient(135deg,#FBBF2422,#F59E0B11)",border:"1px solid #FBBF2466",borderRadius:6,padding:"3px 8px",fontSize:11,fontWeight:900,color:"#FBBF24",letterSpacing:".04em",textDecoration:"none",display:"inline-flex",alignItems:"center",gap:4}}>
+              💎 Passer Premium
+            </a>
+          )}
         </div>
       </div>
       {user.bio&&<div style={{color:"#888",fontSize:12,fontFamily:"'Barlow',sans-serif",marginBottom:6,lineHeight:1.4,marginTop:5}}>{user.bio}</div>}

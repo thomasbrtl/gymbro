@@ -8,9 +8,18 @@ const stripe = new Stripe(Deno.env.get("STRIPE_SECRET_KEY")!, {
 })
 
 const WEBHOOK_SECRET = Deno.env.get("STRIPE_WEBHOOK_SECRET")!
-const PRICE_ID = "price_1TRqsIFuyFZ4ywgT0qT6fsqi"
 
 serve(async (req) => {
+  // Handle CORS preflight
+  if (req.method === "OPTIONS") {
+    return new Response("ok", {
+      headers: {
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, stripe-signature",
+      }
+    })
+  }
+
   const signature = req.headers.get("stripe-signature")
   if (!signature) return new Response("No signature", { status: 400 })
 
@@ -20,7 +29,7 @@ serve(async (req) => {
   try {
     event = await stripe.webhooks.constructEventAsync(body, signature, WEBHOOK_SECRET)
   } catch (err) {
-    console.error("Webhook signature failed:", err)
+    console.error("Webhook signature failed:", err.message)
     return new Response(`Webhook Error: ${err.message}`, { status: 400 })
   }
 
@@ -32,13 +41,12 @@ serve(async (req) => {
   if (event.type === "checkout.session.completed") {
     const session = event.data.object as Stripe.Checkout.Session
     const customerEmail = session.customer_details?.email || session.customer_email
+    console.log("Payment completed for:", customerEmail)
 
     if (!customerEmail) {
-      console.error("No email in session")
       return new Response("No email", { status: 400 })
     }
 
-    // Find user by email
     const { data: users } = await supabase
       .from("profiles")
       .select("id")
@@ -53,33 +61,17 @@ serve(async (req) => {
     const userId = users[0].id
     const premiumUntil = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString()
 
-    await supabase
-      .from("profiles")
-      .update({ is_premium: true, premium_until: premiumUntil })
-      .eq("id", userId)
-
-    // In-app notification
-    await supabase.from("notifications").insert({
-      user_id: userId,
-      from_id: userId,
-      type: "premium_activated",
-    })
-
-    console.log(`Premium activated for ${customerEmail} until ${premiumUntil}`)
+    await supabase.from("profiles").update({ is_premium: true, premium_until: premiumUntil }).eq("id", userId)
+    await supabase.from("notifications").insert({ user_id: userId, from_id: userId, type: "premium_activated" })
+    console.log("Premium activated for", customerEmail, "until", premiumUntil)
   }
 
   if (event.type === "customer.subscription.deleted" || event.type === "invoice.payment_failed") {
-    // Subscription cancelled or payment failed — revoke premium
     const obj = event.data.object as any
     const customerEmail = obj.customer_email || obj?.customer_details?.email
-
     if (customerEmail) {
-      await supabase
-        .from("profiles")
-        .update({ is_premium: false, premium_until: null })
-        .eq("email", customerEmail)
-
-      console.log(`Premium revoked for ${customerEmail}`)
+      await supabase.from("profiles").update({ is_premium: false, premium_until: null }).eq("email", customerEmail)
+      console.log("Premium revoked for", customerEmail)
     }
   }
 
@@ -87,4 +79,6 @@ serve(async (req) => {
     status: 200,
     headers: { "Content-Type": "application/json" },
   })
+}, {
+  // Disable JWT verification — Stripe webhooks don't have Supabase JWT
 })
