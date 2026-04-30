@@ -257,6 +257,7 @@ export default function App() {
       else if (n.type === 'follow')  { icon='👥'; text=`@${pseudo} te suit maintenant` }
       else if (n.type === 'challenge'){ icon='⚡'; text=`@${pseudo} te lance un défi — réponds dans Social → Amis` }
       else if (n.type === 'solo_success'){ icon='🎯'; text=`Défi perso accompli ! XP gagné 🏆` }
+      else if (n.type === 'premium_activated'){ icon='💎'; text=`Premium activé ! Profite du boost XP ×1.25 🏋️` }
       else { icon='🔔'; text=`Nouvelle notification de @${pseudo}` }
       return { id: n.id, icon, text, ts: new Date(n.created_at).getTime(), read: n.read }
     }))
