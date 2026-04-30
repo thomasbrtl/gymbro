@@ -210,6 +210,7 @@ export default function App() {
       avatarFallback: p.profiles?.sexe === 'femme' ? '👩' : '👨',
       rankName: p.rank_name, rankColor: p.rank_color, rankIcon: p.rank_icon,
       rankTier: (p.rank_name || 'Silver I').split(' ')[0].toLowerCase(),
+      isPremium: p.is_premium || false,
       points: p.points || 0,
       caption: p.caption || '', tags: p.tags || [],
       mediaUrl: p.media_url || '', isVideo: p.is_video || false,
@@ -421,12 +422,13 @@ export default function App() {
       } catch(e) { console.warn('Upload failed:', e) }
     }
     const rank = getRankInfo(profile.points || 0)
+    const isPrem = !!(profile?.is_premium && profile?.premium_until && new Date(profile.premium_until) > new Date())
     const { error } = await supabase.from('posts').insert({
       user_id: supaSession.user.id, pseudo: profile.pseudo,
       caption: caption || '', tags: tags || [],
       media_url: finalUrl, is_video: isVideo || false,
       rank_name: rank.name, rank_color: rank.color, rank_icon: rank.icon,
-      points: profile.points || 0,
+      points: profile.points || 0, is_premium: isPrem,
     })
     if (error) { console.error('addPost error:', error.message); throw new Error(error.message) }
     await loadFeed()
@@ -864,7 +866,9 @@ export default function App() {
       }
     }
 
-    const xpGain = supaSession && profile ? (((profile.last_session_date || '') !== today ? 50 : 0) + (isEarly && (profile.last_session_date || '') !== today ? 75 : 0) + prCount * 150) : 0
+    const baseXpGain = supaSession && profile ? (((profile.last_session_date || '') !== today ? 50 : 0) + (isEarly && (profile.last_session_date || '') !== today ? 75 : 0) + prCount * 150) : 0
+    const isPrem = !!(profile?.is_premium && profile?.premium_until && new Date(profile.premium_until) > new Date())
+    const xpGain = isPrem && baseXpGain > 0 ? Math.round(baseXpGain * 1.25) : baseXpGain
     return { isNewDay: (profile?.last_session_date || '') !== today, isEarly, prCount, xpGain }
   }, [supaSession, profile, saveLocal, loadProfile])
 
@@ -916,6 +920,7 @@ export default function App() {
     gymClubId: profile?.gym_club_id || null,
     gymClub: clubData,
     following: follows, conversations, notifs, challenges, referrals, soloChallenge,
+    isPremium: !!(profile?.is_premium && profile?.premium_until && new Date(profile.premium_until) > new Date()),
   }
 
   return <GymbroOffline

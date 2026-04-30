@@ -682,14 +682,17 @@ function AppMain({appState,updateState,onLogout,overrides={}}){
   },[updateState]);
 
   const giveXP=useCallback((amount,reason,icon="⚡")=>{
-    addToast({icon,title:reason,msg:`+${amount} XP`,color:"#FBBF24",xp:amount});
-    addNotif(icon,`${reason} — +${amount} XP`);
+    const isPrem=appState?.isPremium;
+    const finalAmount=isPrem&&amount>0?Math.round(amount*1.25):amount;
+    const boostNote=isPrem&&amount>0?" (×1.25 💎)":"";
+    addToast({icon,title:reason+(isPrem?" 💎":""),msg:`+${finalAmount} XP${boostNote}`,color:"#FBBF24",xp:finalAmount});
+    addNotif(icon,`${reason} — +${finalAmount} XP${boostNote}`);
     updateState(s=>{
-      const newStats={...s.stats,points:s.stats.points+amount};
+      const newStats={...s.stats,points:s.stats.points+finalAmount};
       checkTrophies(newStats,s.stats,s.user);
       return {stats:newStats};
     });
-  },[addToast,addNotif,updateState,checkTrophies]);
+  },[addToast,addNotif,updateState,checkTrophies,appState?.isPremium]);
 
   const _addPost=p=>{
     const newPost={...p,id:genId(),userId:"me",pseudo:user.pseudo,avatarVal:user.avatar||"",avatarFallback:av,rankTier:getRank(stats.points).tier,rankName:getRank(stats.points).name,rankColor:getRank(stats.points).color,rankIcon:getRank(stats.points).icon,points:stats.points,ts:Date.now(),likes:[],commentsList:[],imgPos:p.imgPos||"center"};
@@ -1120,6 +1123,7 @@ function PostCard({post,i,onProfile,toggleLike,onComment,following,toggleFollow,
             <div style={{fontWeight:800,fontSize:14,display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
               <span>@{post.pseudo}</span>
               {post.isInfluencer&&<span style={{background:"#FF3D3D1A",color:"#FF6B6B",fontSize:9,fontWeight:800,padding:"2px 5px",borderRadius:4,letterSpacing:".04em"}}>✓ PRO</span>}
+              {post.isPremium&&<span title="Membre Premium" style={{fontSize:13}}>🏋️</span>}
             </div>
             <div style={{display:"flex",alignItems:"center",gap:5,marginTop:2}}>
               <RankBadge tier={post.rankTier||"silver"} size={14}/>
@@ -2618,7 +2622,7 @@ const ALL_CHALLENGES = [
 ];
 function getWeekKey(){ const d=new Date(); const jan1=new Date(d.getFullYear(),0,1); return `w${d.getFullYear()}_${Math.ceil(((d-jan1)/86400000+jan1.getDay()+1)/7)}`; }
 function getWeekStart(){ const d=new Date(); d.setHours(0,0,0,0); d.setDate(d.getDate()-(d.getDay()===0?6:d.getDay()-1)); return d.getTime(); }
-function getWeekChallenges(){ const k=getWeekKey(); const seed=k.split('').reduce((a,c)=>a+c.charCodeAt(0),0); const shuffled=[...ALL_CHALLENGES].sort((a,b)=>(seed*13+a.id.charCodeAt(0))%7-(seed*13+b.id.charCodeAt(0))%7); return shuffled.slice(0,5); }
+function getWeekChallenges(count=5){ const k=getWeekKey(); const seed=k.split('').reduce((a,c)=>a+c.charCodeAt(0),0); const shuffled=[...ALL_CHALLENGES].sort((a,b)=>(seed*13+a.id.charCodeAt(0))%7-(seed*13+b.id.charCodeAt(0))%7); return shuffled.slice(0,Math.min(count,ALL_CHALLENGES.length)); }
 
 // ══════════════════════ RANKED ══
 function RankedTab({appState,updateState,rank,nextRank,rankPct,stats,giveXP}){
@@ -2628,7 +2632,9 @@ function RankedTab({appState,updateState,rank,nextRank,rankPct,stats,giveXP}){
   const [lbExpanded,setLbExpanded]=useState(false);
 
   // Weekly challenges
-  const weekChallenges=getWeekChallenges();
+  const isPremiumUser=appState?.isPremium;
+  // Premium gets 6 weekly challenges, free gets 5
+  const weekChallenges=getWeekChallenges(isPremiumUser?6:5);
   const weekKey=getWeekKey();
   const weekStart=getWeekStart();
   const [weekData,setWeekData]=useState(()=>{ try{return JSON.parse(localStorage.getItem('gymbro_weekly')||'{}');}catch{return {};} });
@@ -3076,6 +3082,7 @@ function ProfileTab({appState,updateState,rank,imc,av,onEdit,onLogout,posts,chec
         <div style={{display:"flex",alignItems:"center",gap:8,marginTop:3}}>
           <RankBadge tier={rank.tier} size={26} showLabel label={rank.name}/>
           <span style={{fontSize:14,fontWeight:800,color:rank.color}}>{stats.points.toLocaleString()} XP</span>
+          {appState?.isPremium&&<span style={{background:"linear-gradient(135deg,#FBBF24,#F59E0B)",borderRadius:6,padding:"2px 7px",fontSize:11,fontWeight:900,color:"#000",letterSpacing:".04em"}}>🏋️ PREMIUM</span>}
         </div>
       </div>
       {user.bio&&<div style={{color:"#888",fontSize:12,fontFamily:"'Barlow',sans-serif",marginBottom:6,lineHeight:1.4,marginTop:5}}>{user.bio}</div>}
@@ -4188,6 +4195,7 @@ function SoloChallengeModal({current, onClose, onCreate, onDelete, appState}){
   const [duration,setDuration]=useState(SOLO_DURATIONS[1]); // default 14j
   const [target,setTarget]=useState("");
   const [loading,setLoading]=useState(false);
+  const isPrem=appState?.isPremium;
 
   const launch=async()=>{
     if(!preset||!target)return;
@@ -4247,7 +4255,18 @@ function SoloChallengeModal({current, onClose, onCreate, onDelete, appState}){
             </div>
           )}
 
-          {!current&&<>
+          {!current&&!isPrem&&(
+            <div style={{background:"linear-gradient(135deg,#1A1400,#0D0D14)",border:"1px solid #FBBF2444",borderRadius:14,padding:"20px 16px",textAlign:"center",marginBottom:16}}>
+              <div style={{fontSize:36,marginBottom:8}}>💎</div>
+              <div style={{fontSize:16,fontWeight:900,color:"#FBBF24",marginBottom:6}}>Fonctionnalité Premium</div>
+              <div style={{fontSize:13,color:"#888",fontFamily:"'Barlow',sans-serif",lineHeight:1.5,marginBottom:14}}>Les défis perso sont réservés aux membres Premium.<br/>Passe Premium pour te lancer des défis et gagner de l'XP !</div>
+              <a href="https://buy.stripe.com/VOTRE_LIEN_ICI" target="_blank" rel="noopener" style={{display:"block",padding:"13px",background:"linear-gradient(135deg,#FBBF24,#F59E0B)",borderRadius:11,color:"#000",fontFamily:"'Barlow Condensed',sans-serif",fontSize:15,fontWeight:900,letterSpacing:".06em",textDecoration:"none"}}>
+                💎 PASSER PREMIUM — 4.99€/MOIS
+              </a>
+              <div style={{fontSize:11,color:"#555",marginTop:10,fontFamily:"'Barlow',sans-serif"}}>Ou parraine 5 amis pour 1 mois gratuit 🎁</div>
+            </div>
+          )}
+          {!current&&isPrem&&<>
             {/* Preset selection */}
             <div style={{fontSize:11,fontWeight:800,color:"#555",letterSpacing:".08em",textTransform:"uppercase",marginBottom:8}}>Type de défi</div>
             {SOLO_PRESETS.map(p=>(
@@ -4301,7 +4320,7 @@ function SoloChallengeModal({current, onClose, onCreate, onDelete, appState}){
           </>}
         </div>
 
-        {!current&&<div style={{padding:"12px 16px",paddingBottom:"max(16px,env(safe-area-inset-bottom,16px))",borderTop:"1px solid #1A1A24",flexShrink:0,background:"#0F0F18"}}>
+        {!current&&isPrem&&<div style={{padding:"12px 16px",paddingBottom:"max(16px,env(safe-area-inset-bottom,16px))",borderTop:"1px solid #1A1A24",flexShrink:0,background:"#0F0F18"}}>
           {(()=>{
             const exHistory=(preset?.type==="pr"&&(appState?.exercises||{})[preset?.exercise])||[];
             const currentPR=Array.isArray(exHistory)?exHistory.flatMap(h=>h.sets.map(s=>s.weight||0)).reduce((a,b)=>Math.max(a,b),0):0;
