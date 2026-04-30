@@ -4260,7 +4260,7 @@ function SoloChallengeModal({current, onClose, onCreate, onDelete, appState}){
               <div style={{fontSize:36,marginBottom:8}}>💎</div>
               <div style={{fontSize:16,fontWeight:900,color:"#FBBF24",marginBottom:6}}>Fonctionnalité Premium</div>
               <div style={{fontSize:13,color:"#888",fontFamily:"'Barlow',sans-serif",lineHeight:1.5,marginBottom:14}}>Les défis perso sont réservés aux membres Premium.<br/>Passe Premium pour te lancer des défis et gagner de l'XP !</div>
-              <a href="https://buy.stripe.com/VOTRE_LIEN_ICI" target="_blank" rel="noopener" style={{display:"block",padding:"13px",background:"linear-gradient(135deg,#FBBF24,#F59E0B)",borderRadius:11,color:"#000",fontFamily:"'Barlow Condensed',sans-serif",fontSize:15,fontWeight:900,letterSpacing:".06em",textDecoration:"none"}}>
+              <a href="https://buy.stripe.com/00w8wP4Jve3i5Fb2OX6Ri00" target="_blank" rel="noopener" style={{display:"block",padding:"13px",background:"linear-gradient(135deg,#FBBF24,#F59E0B)",borderRadius:11,color:"#000",fontFamily:"'Barlow Condensed',sans-serif",fontSize:15,fontWeight:900,letterSpacing:".06em",textDecoration:"none"}}>
                 💎 PASSER PREMIUM — 4.99€/MOIS
               </a>
               <div style={{fontSize:11,color:"#555",marginTop:10,fontFamily:"'Barlow',sans-serif"}}>Ou parraine 5 amis pour 1 mois gratuit 🎁</div>
