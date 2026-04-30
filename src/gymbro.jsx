@@ -3045,6 +3045,7 @@ function ProfileTab({appState,updateState,rank,imc,av,onEdit,onLogout,posts,chec
   const [showSoloModal,setShowSoloModal]=useState(false);
   const [showReferralModal,setShowReferralModal]=useState(false);
   const [sharePR,setSharePR]=useState(null);
+  const [showCGU,setShowCGU]=useState(false);
   const unlocked=TROPHIES.filter(t=>t.condition(stats));
   const pinned=(user.pinnedTrophies||[]).map(id=>TROPHIES.find(t=>t.id===id)).filter(Boolean);
   const myPosts=posts.filter(p=>p.userId==="me");
@@ -3060,6 +3061,7 @@ function ProfileTab({appState,updateState,rank,imc,av,onEdit,onLogout,posts,chec
         </div>
         <div style={{display:"flex",gap:6,marginTop:2}}>
           <button onClick={onEdit} className="btn-g" style={{padding:"7px 11px",fontSize:11}}>✏️ Modifier</button>
+          <button onClick={()=>setShowCGU(true)} style={{background:"#0D0D14",border:"1px solid #2A2A3A",color:"#666",padding:"7px 10px",borderRadius:9,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>CGU</button>
           <button onClick={onLogout} style={{background:"#1A0A0A",border:"1px solid #FF3D3D33",color:"#FF6060",padding:"7px 10px",borderRadius:9,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>Déco.</button>
         </div>
       </div>
@@ -3357,6 +3359,7 @@ function ProfileTab({appState,updateState,rank,imc,av,onEdit,onLogout,posts,chec
 
       {/* ── SOLO CHALLENGE MODAL ── */}
       {sharePR&&<PRShareModal data={sharePR} onClose={()=>setSharePR(null)}/>}
+      {showCGU&&<CGUModal onClose={()=>setShowCGU(false)}/>}
 
       {showClubModal&&(
         <ClubModal
@@ -3377,6 +3380,98 @@ function ProfileTab({appState,updateState,rank,imc,av,onEdit,onLogout,posts,chec
           onDelete={async()=>{await overrides?.deleteSoloChallenge?.(soloChallenge?.id);setShowSoloModal(false);}}
         />
       )}
+    </div>
+  );
+}
+
+// ══════════════════════ CGU MODAL ══
+function CGUModal({onClose}){
+  const sections=[
+    {
+      title:"1. Présentation",
+      content:`GymBro est une application mobile de fitness social éditée par un auto-entrepreneur français. L'application permet à ses utilisateurs de suivre leurs entraînements, de partager leurs performances et d'interagir avec une communauté de sportifs.\n\nEn accédant à GymBro, vous acceptez sans réserve les présentes Conditions Générales d'Utilisation (CGU). Si vous n'acceptez pas ces conditions, vous devez cesser d'utiliser l'application.`
+    },
+    {
+      title:"2. Inscription et compte",
+      content:`L'utilisation de GymBro nécessite la création d'un compte avec une adresse email valide et un mot de passe sécurisé.\n\nVous vous engagez à :\n• Fournir des informations exactes lors de l'inscription\n• Maintenir la confidentialité de vos identifiants\n• Ne pas créer de comptes multiples ou de faux comptes\n• Signaler toute utilisation non autorisée de votre compte\n\nVous êtes seul responsable de toute activité réalisée depuis votre compte.`
+    },
+    {
+      title:"3. Utilisation de l'application",
+      content:`GymBro est réservé à un usage personnel et non commercial. Il est strictement interdit de :\n• Publier du contenu offensant, haineux, discriminatoire ou illégal\n• Harceler, menacer ou intimider d'autres utilisateurs\n• Usurper l'identité d'une autre personne\n• Tenter de pirater ou de compromettre la sécurité de l'application\n• Utiliser l'application à des fins commerciales sans autorisation\n• Créer des faux clubs ou fausser les classements\n\nTout manquement à ces règles peut entraîner la suspension immédiate du compte.`
+    },
+    {
+      title:"4. Contenu utilisateur",
+      content:`En publiant du contenu (photos, vidéos, messages) sur GymBro, vous accordez à l'application une licence non exclusive et gratuite pour afficher ce contenu au sein de la plateforme.\n\nVous garantissez que le contenu que vous publiez :\n• Vous appartient ou que vous disposez des droits nécessaires\n• Ne viole pas les droits de tiers (droit à l'image, droits d'auteur)\n• Est en conformité avec la législation française en vigueur\n\nGymBro se réserve le droit de supprimer tout contenu jugé inapproprié.`
+    },
+    {
+      title:"5. Données personnelles",
+      content:`GymBro collecte et traite vos données personnelles conformément au Règlement Général sur la Protection des Données (RGPD).\n\nDonnées collectées : email, pseudo, données d'entraînement, localisation approximative (ville), photos de profil.\n\nFinalités : fonctionnement de l'application, amélioration du service, classements communautaires.\n\nVos droits : vous pouvez à tout moment demander l'accès, la rectification ou la suppression de vos données en nous contactant.\n\nVos données ne sont jamais vendues à des tiers.`
+    },
+    {
+      title:"6. Système de rangs et XP",
+      content:`Le système de progression (XP, rangs, défis) est fourni à titre ludique uniquement. GymBro se réserve le droit de modifier les seuils, les récompenses ou le système de rangs à tout moment sans préavis.\n\nLe Premium offert via parrainage est une récompense temporaire (1 mois). GymBro ne garantit pas la pérennité de cette offre.`
+    },
+    {
+      title:"7. Disponibilité du service",
+      content:`GymBro s'efforce d'assurer la disponibilité de l'application 24h/24 et 7j/7, mais ne saurait être tenu responsable des interruptions de service dues à des maintenances, des bugs ou des incidents techniques.\n\nL'application est fournie "en l'état". GymBro ne garantit pas l'absence totale d'erreurs ou d'interruptions.`
+    },
+    {
+      title:"8. Modification des CGU",
+      content:`GymBro se réserve le droit de modifier les présentes CGU à tout moment. Les utilisateurs seront informés des modifications importantes. La continuité d'utilisation de l'application après notification vaut acceptation des nouvelles conditions.`
+    },
+    {
+      title:"9. Loi applicable",
+      content:`Les présentes CGU sont soumises au droit français. En cas de litige, les tribunaux français seront seuls compétents.\n\nPour toute question ou réclamation, vous pouvez nous contacter via l'application.`
+    },
+  ];
+
+  return(
+    <div style={{position:"fixed",inset:0,background:"#0A0A0F",zIndex:600,display:"flex",flexDirection:"column",overflowY:"hidden"}}>
+      {/* Header */}
+      <div style={{display:"flex",alignItems:"center",gap:12,padding:"env(safe-area-inset-top,0px) 16px 0",paddingTop:`calc(env(safe-area-inset-top,0px) + 14px)`,borderBottom:"1px solid #1A1A24",flexShrink:0,background:"#0A0A0FEE",backdropFilter:"blur(14px)"}}>
+        <button onClick={onClose} style={{background:"none",border:"none",color:"#888",cursor:"pointer",display:"flex",alignItems:"center",padding:4}}>
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+        </button>
+        <div>
+          <div style={{fontSize:18,fontWeight:900}}>Conditions d'utilisation</div>
+          <div style={{fontSize:10,color:"#444",fontFamily:"'Barlow',sans-serif",marginTop:1}}>Dernière mise à jour : Avril 2025</div>
+        </div>
+      </div>
+
+      {/* Content */}
+      <div className="sa" style={{flex:1,overflowY:"auto",padding:"16px 16px 40px"}}>
+
+        {/* Intro card */}
+        <div style={{background:"linear-gradient(135deg,#FF3D3D14,#0D0D14)",border:"1px solid #FF3D3D33",borderRadius:14,padding:"14px 16px",marginBottom:20}}>
+          <div style={{fontSize:22,marginBottom:6}}>📋</div>
+          <div style={{fontSize:14,fontWeight:800,color:"#F0F0F0",marginBottom:4}}>En utilisant GymBro, vous acceptez ces conditions.</div>
+          <div style={{fontSize:12,color:"#666",fontFamily:"'Barlow',sans-serif",lineHeight:1.5}}>Prenez le temps de les lire. Elles sont courtes et écrites en français simple.</div>
+        </div>
+
+        {sections.map((s,i)=>(
+          <div key={i} style={{marginBottom:20}}>
+            <div style={{fontSize:13,fontWeight:900,color:"#FF6B6B",marginBottom:8,letterSpacing:".02em"}}>{s.title}</div>
+            <div style={{fontSize:13,color:"#AAA",lineHeight:1.65,fontFamily:"'Barlow',sans-serif",whiteSpace:"pre-line"}}>{s.content}</div>
+          </div>
+        ))}
+
+        {/* Footer */}
+        <div style={{borderTop:"1px solid #1A1A24",paddingTop:16,marginTop:8}}>
+          <div style={{fontSize:11,color:"#333",textAlign:"center",fontFamily:"'Barlow',sans-serif",lineHeight:1.6}}>
+            © 2025 GymBro — Tous droits réservés<br/>
+            Application développée en France 🇫🇷
+          </div>
+        </div>
+
+        <div style={{height:"env(safe-area-inset-bottom,20px)"}}/>
+      </div>
+
+      {/* Bottom button */}
+      <div style={{padding:"12px 16px",paddingBottom:"max(16px,env(safe-area-inset-bottom,16px))",borderTop:"1px solid #1A1A24",background:"#0A0A0F",flexShrink:0}}>
+        <button onClick={onClose} style={{width:"100%",padding:"14px",background:"#1A1A24",border:"1px solid #2A2A3A",color:"#888",borderRadius:12,fontFamily:"'Barlow Condensed',sans-serif",fontSize:15,fontWeight:800,cursor:"pointer",letterSpacing:".04em"}}>
+          J'AI LU ET J'ACCEPTE
+        </button>
+      </div>
     </div>
   );
 }
