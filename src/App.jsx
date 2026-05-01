@@ -716,11 +716,11 @@ export default function App() {
     // ── 2. Sync to Supabase in background (non-blocking) ──
     if (supaSession && profile) {
       const isNewDay  = (profile.last_session_date || '') !== today
-      const xpGain    = (isNewDay ? 50 : 0) + (isEarly && isNewDay ? 75 : 0) + prCount * 150
+      const xpGain    = 0 // XP de base supprimé — seuls les défis hebdo donnent de l'XP
       const statUp = {
         sessions: (profile.sessions || 0) + (isNewDay ? 1 : 0),
         prs:      (profile.prs || 0) + prCount,
-        points:   (profile.points || 0) + xpGain,
+        points:   (profile.points || 0), // points inchangés via saveSession
         early_session:    profile.early_session || isEarly,
         night_session:    profile.night_session || isNight,
         weekend_sessions: (profile.weekend_sessions || 0) + (isWeekend && isNewDay ? 1 : 0),
@@ -873,9 +873,9 @@ export default function App() {
       }
     }
 
-    const baseXpGain = supaSession && profile ? (((profile.last_session_date || '') !== today ? 50 : 0) + (isEarly && (profile.last_session_date || '') !== today ? 75 : 0) + prCount * 150) : 0
+    const baseXpGain = 0 // XP de base supprimé
     const isPrem = !!(profile?.is_premium && profile?.premium_until && new Date(profile.premium_until) > new Date())
-    const xpGain = isPrem && baseXpGain > 0 ? Math.round(baseXpGain * 1.25) : baseXpGain
+    const xpGain = 0
     return { isNewDay: (profile?.last_session_date || '') !== today, isEarly, prCount, xpGain }
   }, [supaSession, profile, saveLocal, loadProfile])
 

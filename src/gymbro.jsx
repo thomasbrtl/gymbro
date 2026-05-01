@@ -487,16 +487,8 @@ function SupabaseBridge({ callbacks, externalAppState, isAuthenticated, external
       const res = await saveSession(dayName, programName, result, durationSec, (localPatch) => {
         if (externalSaveLocal) externalSaveLocal(localPatch);
       });
-      // XP toasts + notifs — fire after session saved
-      if (res?.xpGain > 0) {
-        if (res.isNewDay) giveXP(50, "Séance complétée !", "🏋️");
-        if (res.isEarly && res.isNewDay) giveXP(75, "Séance Early Bird 🌅", "🌅");
-        if (res.prCount > 0) giveXP(res.prCount * 150, res.prCount + " nouveau" + (res.prCount > 1 ? "x" : "") + " PR !", "💪");
-      }
-      // Always notify session done even if no XP (not new day)
-      if (res !== undefined && !res?.isNewDay) {
-        addNotif("🏋️", "Séance enregistrée — continue comme ça !");
-      }
+      // Pas d'XP de base — seuls les défis hebdo donnent de l'XP
+      if (res !== undefined) addNotif("🏋️", "Séance enregistrée !");
     };
 
     return (
@@ -806,14 +798,10 @@ function AppMain({appState,updateState,onLogout,overrides={}}){
       checkTrophies(newStats,prevStats,s.user);
       return {exercises:newExercises,stats:newStats,sessionHistory:[historyEntry,...(s.sessionHistory||[])]};
     });
-    // XP — only award once per calendar day
-    if(isNewDayXP){
-      giveXP(50,"Séance complétée !","🏋️");
-      if(isEarly)giveXP(75,"Séance Early Bird 🌅","🌅");
-    }
+    // Pas d'XP de base — notification simple
+    addNotif("🏋️","Séance enregistrée !");
     if(prCount>0){
-      giveXP(prCount*150,prCount+" nouveau"+(prCount>1?"x":"")+" PR !","💪");
-      addToast({icon:"💪",title:"PR battu !",msg:"Nouveau record personnel !",color:"#F59E0B"});
+      addToast({icon:"💪",title:"PR battu !",msg:"Nouveau record personnel 🏆",color:"#F59E0B"});
     }
   },[exercises,appState,updateState,checkTrophies,giveXP,addToast]);
 
@@ -3091,10 +3079,9 @@ function ProfileTab({appState,updateState,rank,imc,av,onEdit,onLogout,posts,chec
           <span style={{fontSize:14,fontWeight:800,color:rank.color}}>{stats.points.toLocaleString()} XP</span>
           {appState?.isPremium&&<span style={{background:"linear-gradient(135deg,#FBBF24,#F59E0B)",borderRadius:6,padding:"2px 7px",fontSize:11,fontWeight:900,color:"#000",letterSpacing:".04em"}}>🏋️ PREMIUM</span>}
           {!appState?.isPremium&&(
-            <a href="https://buy.stripe.com/00w8wP4Jve3i5Fb2OX6Ri00" target="_blank" rel="noopener"
-              style={{background:"linear-gradient(135deg,#FBBF2422,#F59E0B11)",border:"1px solid #FBBF2466",borderRadius:6,padding:"3px 8px",fontSize:11,fontWeight:900,color:"#FBBF24",letterSpacing:".04em",textDecoration:"none",display:"inline-flex",alignItems:"center",gap:4}}>
-              💎 Passer Premium
-            </a>
+            <PremiumLink style={{display:"inline-flex",alignItems:"center",gap:4,background:"linear-gradient(135deg,#FBBF2422,#F59E0B11)",border:"1px solid #FBBF2466",borderRadius:6,padding:"3px 8px"}}>
+              <span style={{fontSize:11,fontWeight:900,color:"#FBBF24",letterSpacing:".04em"}}>💎 Passer Premium</span>
+            </PremiumLink>
           )}
         </div>
       </div>
@@ -3180,8 +3167,7 @@ function ProfileTab({appState,updateState,rank,imc,av,onEdit,onLogout,posts,chec
 
       {/* Premium banner */}
       {!appState?.isPremium&&(
-        <a href="https://buy.stripe.com/00w8wP4Jve3i5Fb2OX6Ri00" target="_blank" rel="noopener"
-          style={{display:"block",background:"linear-gradient(135deg,#1A1200,#0D0D00)",border:"1px solid #FBBF2455",borderRadius:12,padding:"12px 14px",marginBottom:12,textDecoration:"none"}}>
+        <PremiumLink style={{display:"block",background:"linear-gradient(135deg,#1A1200,#0D0D00)",border:"1px solid #FBBF2455",borderRadius:12,padding:"12px 14px",marginBottom:12}}>
           <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:8}}>
             <span style={{fontSize:22}}>💎</span>
             <div style={{flex:1}}>
@@ -4240,6 +4226,22 @@ const SOLO_PRESETS = [
   {id:"volume",     icon:"📊",title:"Volume total",          desc:"Soulève X kg au total sur la période",type:"volume",exercise:null,            unit:"kg"},
 ];
 const SOLO_XP = 150; // XP fixe pour tout défi solo
+
+// ── Platform detection ──
+const isNativeIOS = () => !!(window?.Capacitor?.isNativePlatform?.() || window?.Capacitor?.platform === 'ios');
+
+function PremiumLink({children, style}){
+  if(isNativeIOS()){
+    return(
+      <div onClick={()=>window.open("https://gymbro-lyart.vercel.app","_blank")}
+        style={{textAlign:"center",padding:"8px 0",cursor:"pointer",...style}}>
+        <div style={{fontSize:12,color:"#888",fontFamily:"'Barlow',sans-serif",marginBottom:2}}>Premium disponible sur</div>
+        <div style={{fontSize:13,color:"#FBBF24",fontWeight:700,fontFamily:"'Barlow Condensed',sans-serif",letterSpacing:".04em",textDecoration:"underline"}}>gymbro-lyart.vercel.app</div>
+      </div>
+    );
+  }
+  return <a href="https://buy.stripe.com/00w8wP4Jve3i5Fb2OX6Ri00" target="_blank" rel="noopener" style={{textDecoration:"none",...style}}>{children}</a>;
+}
 const SOLO_DURATIONS = [{d:7,l:"7 jours"},{d:14,l:"14 jours"},{d:30,l:"30 jours"}];
 
 function SoloChallengeModal({current, onClose, onCreate, onDelete, appState}){
@@ -4312,9 +4314,11 @@ function SoloChallengeModal({current, onClose, onCreate, onDelete, appState}){
               <div style={{fontSize:36,marginBottom:8}}>💎</div>
               <div style={{fontSize:16,fontWeight:900,color:"#FBBF24",marginBottom:6}}>Fonctionnalité Premium</div>
               <div style={{fontSize:13,color:"#888",fontFamily:"'Barlow',sans-serif",lineHeight:1.5,marginBottom:14}}>Les défis perso sont réservés aux membres Premium.<br/>Passe Premium pour te lancer des défis et gagner de l'XP !</div>
-              <a href="https://buy.stripe.com/00w8wP4Jve3i5Fb2OX6Ri00" target="_blank" rel="noopener" style={{display:"block",padding:"13px",background:"linear-gradient(135deg,#FBBF24,#F59E0B)",borderRadius:11,color:"#000",fontFamily:"'Barlow Condensed',sans-serif",fontSize:15,fontWeight:900,letterSpacing:".06em",textDecoration:"none"}}>
-                💎 PASSER PREMIUM — 4.99€/MOIS
-              </a>
+              <PremiumLink style={{display:"block"}}>
+                <div style={{padding:"13px",background:"linear-gradient(135deg,#FBBF24,#F59E0B)",borderRadius:11,color:"#000",fontFamily:"'Barlow Condensed',sans-serif",fontSize:15,fontWeight:900,letterSpacing:".06em",textAlign:"center"}}>
+                  {isNativeIOS()?"💎 PREMIUM — voir gymbro-lyart.vercel.app":"💎 PASSER PREMIUM — 4.99€/MOIS"}
+                </div>
+              </PremiumLink>
               <div style={{fontSize:11,color:"#555",marginTop:10,fontFamily:"'Barlow',sans-serif"}}>Ou parraine 5 amis pour 1 mois gratuit 🎁</div>
             </div>
           )}
