@@ -3183,7 +3183,7 @@ function ProfileTab({appState,updateState,rank,imc,av,onEdit,onLogout,posts,chec
             ))}
           </div>
           <div style={{fontSize:10,color:"#555",marginTop:8,fontFamily:"'Barlow',sans-serif",textAlign:"center"}}>ou parraine 5 amis → 1 mois gratuit 🎁</div>
-        </a>
+        </PremiumLink>
       )}
       {appState?.isPremium&&(
         <div style={{background:"linear-gradient(135deg,#1A1200,#0D0D00)",border:"1px solid #FBBF2455",borderRadius:12,padding:"12px 14px",marginBottom:12}}>
