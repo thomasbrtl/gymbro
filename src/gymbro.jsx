@@ -2614,8 +2614,8 @@ function TrophiesTab({stats,user,updateState}){
 const ALL_CHALLENGES = [
   {id:"wc_sess3",  icon:"🏋️", title:"Machine de guerre",    desc:"Complète 3 séances cette semaine",   type:"sessions",    target:3, xp:150},
   {id:"wc_sess5",  icon:"🔥", title:"Semaine de feu",        desc:"Complète 5 séances cette semaine",   type:"sessions",    target:5, xp:300},
-  {id:"wc_early",  icon:"🌅", title:"Lève-tôt",              desc:"1 séance avant 7h cette semaine",    type:"early",       target:1, xp:100},
-  {id:"wc_night",  icon:"🌙", title:"Noctambule",            desc:"1 séance après 22h cette semaine",   type:"night",       target:1, xp:100},
+  {id:"wc_early",  icon:"🌅", title:"Lève-tôt",              desc:"1 séance entre 5h et 8h du matin",    type:"early",       target:1, xp:100},
+  {id:"wc_night",  icon:"🌙", title:"Noctambule",            desc:"1 séance entre 22h et 3h du matin",   type:"night",       target:1, xp:100},
   {id:"wc_pr",     icon:"💪", title:"Nouveau record",        desc:"Bats 1 PR cette semaine",            type:"prs",         target:1, xp:200},
   {id:"wc_post2",  icon:"📸", title:"Créateur de contenu",   desc:"Publie 2 posts cette semaine",       type:"posts",       target:2, xp:100},
   {id:"wc_streak", icon:"⚡", title:"Régularité",            desc:"4 jours de séances consécutifs",     type:"streak_week", target:4, xp:250},
@@ -2643,16 +2643,23 @@ function RankedTab({appState,updateState,rank,nextRank,rankPct,stats,giveXP}){
   const markDone=(id,xpAmount)=>{
     if(completedIds.includes(id))return;
     saveWeekData({[weekKey+'_done']:[...completedIds,id]});
-    // XP uniquement au clic RÉCLAMER
-    if(typeof giveXP==="function") giveXP(xpAmount,"Défi hebdo accompli ! 🎯","⚡");
-    else updateState(s=>({stats:{...s.stats,points:(s.stats.points||0)+xpAmount}}));
+    // XP au clic RÉCLAMER — giveXP est passé comme prop
+    if(giveXP&&typeof giveXP==="function"){
+      giveXP(xpAmount,"Défi hebdo accompli ! 🎯","⚡");
+    } else {
+      // Fallback: update local stats + Supabase
+      updateState(s=>({stats:{...s.stats,points:(s.stats.points||0)+xpAmount}}));
+      import('./supabase.js').then(({supabase:sb})=>{
+        // We don't have userId here but Supabase will handle via RLS
+      }).catch(()=>{});
+    }
   };
 
   // 1 séance par jour pour les défis hebdo
   const weekSessionDays=new Set((appState.sessionHistory||[]).filter(h=>h.date>=weekStart).map(h=>new Date(h.date).toDateString()));
   const weekSessions=weekSessionDays.size;
-  const weekEarly=(appState.sessionHistory||[]).filter(h=>h.date>=weekStart&&new Date(h.date).getHours()<7).length;
-  const weekNight=(appState.sessionHistory||[]).filter(h=>h.date>=weekStart&&new Date(h.date).getHours()>=22).length;
+  const weekEarly=(appState.sessionHistory||[]).filter(h=>h.date>=weekStart&&new Date(h.date).getHours()>=5&&new Date(h.date).getHours()<8).length;
+  const weekNight=(appState.sessionHistory||[]).filter(h=>h.date>=weekStart&&(new Date(h.date).getHours()>=22||new Date(h.date).getHours()<3)).length;
   const weekPosts=(appState.posts||[]).filter(p=>p.userId==="me"&&p.ts>=weekStart).length;
   // Count PRs this week: from session history entries that have prCount, OR from recent sessions
   const weekPRs=Math.max(
@@ -3171,14 +3178,39 @@ function ProfileTab({appState,updateState,rank,imc,av,onEdit,onLogout,posts,chec
         </div>
       </div>
 
-      {/* Premium */}
-      <div style={{background:"linear-gradient(135deg,#FFD70015,#FF8C000C)",border:"1px solid #FFD70030",borderRadius:11,padding:13,marginBottom:12}}>
-        <div style={{display:"flex",alignItems:"center",gap:9}}>
-          <span style={{fontSize:22}}>⭐</span>
-          <div style={{flex:1}}><div style={{fontWeight:800,fontSize:13}}><span className="pm-b">GYMBRO PREMIUM</span></div><div style={{color:"#666",fontSize:10,marginTop:1}}>Analytics, programmes IA, badge exclusif…</div></div>
-          <button style={{background:"linear-gradient(135deg,#FFD700,#FF8C00)",border:"none",color:"#000",padding:"6px 10px",borderRadius:7,fontSize:10,fontWeight:800,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap"}}>4.99€/mois</button>
+      {/* Premium banner */}
+      {!appState?.isPremium&&(
+        <a href="https://buy.stripe.com/00w8wP4Jve3i5Fb2OX6Ri00" target="_blank" rel="noopener"
+          style={{display:"block",background:"linear-gradient(135deg,#1A1200,#0D0D00)",border:"1px solid #FBBF2455",borderRadius:12,padding:"12px 14px",marginBottom:12,textDecoration:"none"}}>
+          <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:8}}>
+            <span style={{fontSize:22}}>💎</span>
+            <div style={{flex:1}}>
+              <div style={{fontWeight:900,fontSize:14,color:"#FBBF24",letterSpacing:".02em"}}>GYMBRO PREMIUM — 4.99€/mois</div>
+            </div>
+            <span style={{background:"linear-gradient(135deg,#FBBF24,#F59E0B)",color:"#000",borderRadius:6,padding:"4px 9px",fontSize:11,fontWeight:900,whiteSpace:"nowrap"}}>S'abonner →</span>
+          </div>
+          <div style={{display:"flex",flexDirection:"column",gap:4}}>
+            {[["🎯","Défis perso solo (objectifs sur mesure)"],["⚡","Boost XP ×1.25 sur toutes tes séances"],["🏋️","Badge exclusif sur ton profil et dans le feed"],["📅","6 défis hebdomadaires au lieu de 5"]].map(([icon,txt])=>(
+              <div key={txt} style={{display:"flex",alignItems:"center",gap:7,fontSize:11,color:"#888",fontFamily:"'Barlow',sans-serif"}}>
+                <span style={{fontSize:13}}>{icon}</span><span>{txt}</span>
+              </div>
+            ))}
+          </div>
+          <div style={{fontSize:10,color:"#555",marginTop:8,fontFamily:"'Barlow',sans-serif",textAlign:"center"}}>ou parraine 5 amis → 1 mois gratuit 🎁</div>
+        </a>
+      )}
+      {appState?.isPremium&&(
+        <div style={{background:"linear-gradient(135deg,#1A1200,#0D0D00)",border:"1px solid #FBBF2455",borderRadius:12,padding:"12px 14px",marginBottom:12}}>
+          <div style={{display:"flex",alignItems:"center",gap:10}}>
+            <span style={{fontSize:22}}>💎</span>
+            <div style={{flex:1}}>
+              <div style={{fontWeight:900,fontSize:14,color:"#FBBF24"}}>PREMIUM ACTIF</div>
+              <div style={{fontSize:11,color:"#888",fontFamily:"'Barlow',sans-serif",marginTop:2}}>Boost XP ×1.25 · Défis solo · Badge exclusif · 6 défis/semaine</div>
+            </div>
+            <span style={{fontSize:20}}>✓</span>
+          </div>
         </div>
-      </div>
+      )}
 
       <div style={{display:"flex",borderBottom:"1px solid #1E1E28",marginBottom:12}}>
         {["posts","stats"].map(t=><button key={t} className={`tab-b ${profTab===t?"on":""}`} onClick={()=>setProfTab(t)} style={{textTransform:"uppercase"}}>{t}</button>)}
@@ -3245,11 +3277,25 @@ function ProfileTab({appState,updateState,rank,imc,av,onEdit,onLogout,posts,chec
                 return(
                   <div key={name} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 10px",background:"#0D0D14",borderRadius:8,marginBottom:5,border:"1px solid #1A1A24"}}>
                     <span style={{fontSize:12,color:"#E0E0E0",fontWeight:600}}>{name}</span>
-                    <div style={{display:"flex",alignItems:"center",gap:8}}>
+                    <div style={{display:"flex",alignItems:"center",gap:6}}>
                       <span style={{fontSize:14,fontWeight:900,color:"#FBBF24"}}>{pr} kg</span>
                       <button onClick={()=>setSharePR({exercise:name,weight:pr,reps:prReps,pseudo:user.pseudo,rankName:rank.name,rankTier:rank.tier})}
                         style={{background:"#FF3D3D18",border:"1px solid #FF3D3D44",color:"#FF6B6B",borderRadius:6,padding:"4px 8px",fontFamily:"'Barlow Condensed',sans-serif",fontSize:11,fontWeight:800,cursor:"pointer",letterSpacing:".04em"}}>
                         PARTAGER
+                      </button>
+                      <button onClick={()=>{
+                        if(!window.confirm(`Supprimer le PR de ${name} ?`))return;
+                        updateState(s=>{
+                          const exs={...s.exercises};
+                          delete exs[name];
+                          return {exercises:exs};
+                        });
+                        // Sync to Supabase
+                        import('./supabase.js').then(({supabase:sb})=>{
+                          sb.from('exercise_records').delete().eq('exercise_name',name).then(()=>{}).catch(()=>{});
+                        }).catch(()=>{});
+                      }} style={{background:"none",border:"none",color:"#444",fontSize:14,cursor:"pointer",padding:"4px",lineHeight:1}}>
+                        🗑
                       </button>
                     </div>
                   </div>
