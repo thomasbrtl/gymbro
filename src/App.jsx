@@ -860,9 +860,15 @@ export default function App() {
         // Check if referrer now has 5 validated referrals
         const { count } = await supabase.from('referrals').select('*', { count: 'exact', head: true }).eq('referrer_id', myRef.referrer_id).eq('status', 'validated')
         if (count && count >= 5) {
-          const premiumUntil = new Date(Date.now() + 30 * 86400000).toISOString()
-          await supabase.from('profiles').update({ is_premium: true, premium_until: premiumUntil }).eq('id', myRef.referrer_id)
-          sendPushTo(myRef.referrer_id, '🎉 Premium offert !', 'Tu as parrainé 5 personnes — 1 mois Premium gratuit activé !', 'premium')
+          // Check if referral premium was already given before
+          const { data: referrerProf } = await supabase.from('profiles').select('referral_premium_used').eq('id', myRef.referrer_id).maybeSingle()
+          if (referrerProf?.referral_premium_used) {
+            console.log('Referral premium already used once, skipping')
+          } else {
+            const premiumUntil = new Date(Date.now() + 30 * 86400000).toISOString()
+            await supabase.from('profiles').update({ is_premium: true, premium_until: premiumUntil, referral_premium_used: true }).eq('id', myRef.referrer_id)
+            sendPushTo(myRef.referrer_id, '🎉 Premium offert !', 'Tu as parrainé 5 personnes — 1 mois Premium gratuit activé !', 'premium')
+          }
         }
       }
     }
